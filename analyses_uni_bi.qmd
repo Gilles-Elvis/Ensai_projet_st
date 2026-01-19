@@ -1,0 +1,1149 @@
+---
+title: "PROJET : PARCOURS DE SOINS POST-GREFFE RÉNALE"
+format: html
+editor: visual
+---
+
+# PRELIMINAIRES
+
+## Chargement des packages
+
+```{r}
+# Installer les packages si nécessaire (décommenter si besoin)
+# install.packages("dplyr")
+# install.packages("ggplot2")
+# install.packages("lubridate")
+
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+```
+
+## Importation des données
+
+```{r}
+list.files()
+
+
+```
+
+```{r}
+data = read.csv("donnees.csv", header = TRUE, sep = ";")
+View(data)
+```
+
+## Vérifier l'importation
+
+```{r}
+cat("Nombre de lignes :", nrow(data), "\n")
+cat("Nombre de colonnes :", ncol(data), "\n")
+```
+
+## Structure des données
+
+```{r}
+str(data)
+```
+
+```{r}
+summary(data)
+```
+
+## Variables manquantes
+
+```{r}
+
+est_manquant <- function(x) {
+  is.na(x) | (is.character(x) & trimws(x) == "")
+}
+
+# Calcul du taux de valeurs manquantes par variable
+taux_manquant <- sapply(data, function(col) {
+  sum(est_manquant(col)) / length(col) * 100
+})
+
+# Dataframe récapitulatif
+missing_df <- data.frame(
+  variable = names(taux_manquant),
+  taux_manquant = taux_manquant
+)
+
+# Tri décroissant par taux de valeurs manquantes
+missing_df <- missing_df[order(-missing_df$taux_manquant), ]
+
+
+```
+
+## Conversion des dates
+
+Vu la structure des dates , nous l'avons ramener au format utilisable par R
+
+```{r}
+# Extraire la partie date (avant les ":")
+# Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
+data$date_greffe_clean <- sub(":.*", "", data$date_greffe)
+data$debut_sejour_clean <- sub(":.*", "", data$debut_sejour)
+data$fin_sejour_clean <- sub(":.*", "", data$fin_sejour)
+
+# Convertir en format Date
+data$date_greffe <- as.Date(data$date_greffe_clean, format="%d%b%Y")
+data$debut_sejour <- as.Date(data$debut_sejour_clean, format="%d%b%Y")
+data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
+```
+
+## Idenfication du nombre de patients unique
+
+```{r}
+nb_patients <- length(unique(data$study_id))
+cat("Nombre de patients uniques :", nb_patients, "\n")
+```
+
+2784 patients pour 22132 lignes donc il y a des patients qui ont plusieurs séjours
+
+# ANALYSE UNIVARIES
+
+## Structure des données
+
+La base de données est de type longitudinale : chaque ligne correspond à un séjour hospitalier, et un même patient (identifié par `study_id`) peut apparaître plusieurs fois.
+
+Pour les analyses descriptives, une base agrégée au niveau patient (une ligne par patient) est construite en conservant la première greffe observée.
+
+```{r}
+data_patients <- data %>%
+  group_by(study_id) %>%
+  arrange(date_greffe) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(Sexe = factor(COD_SEX, levels = c(1, 2), labels = c("Masculin", "Féminin")))
+```
+
+## Distribution de l'âge des patients
+
+```{r}
+summary(data_patients$AGE_ANN)
+```
+
+L’âge des patients greffés présente une médiane de 56 ans, proche de la moyenne, indiquant une distribution globalement symétrique.\
+La moitié des patients a un âge compris entre environ 44 et 67 ans, ce qui correspond à une population d’adultes d’âge moyen à avancé.
+
+Ci-joint un histogramme pour une meilleure visualisation :
+
+```{r}
+ggplot(data_patients, aes(x = AGE_ANN)) +
+geom_histogram(bins = 30, fill = "steelblue", color = "black", alpha = 0.7) +
+labs(
+title = "Distribution de l'âge des patients à la greffe",
+subtitle = paste("n =", nrow(data_patients), "patients"),
+x = "Âge (années)",
+y = "Nombre de patients"
+) +
+theme_minimal()
+```
+
+Pour la suite de l'étude, nous avons opté pour une rédéfinition des âges en tranches d'âge. Les tranches d’âge ont été définies selon des intervalles de 10 ans à partir de 30 ans, afin de garantir une lecture statistique homogène et de limiter les déséquilibres d’effectifs entre classes. Les seuils retenus (50, 60 et 70 ans) correspondent à des repères épidémiologiques couramment utilisés en transplantation rénale, marquant des évolutions du profil clinique des patients.
+
+Ce choix est également guidé par l’examen de l’histogramme de l’âge, qui met en évidence une forte concentration des patients entre 50 et 70 ans. Les classes extrêmes (\<30 ans et ≥80 ans) ont été regroupées afin d’éviter des effectifs trop faibles et de garantir une interprétation statistique robuste.
+
+```{r}
+data_patients$tranche_age <- cut(
+data_patients$AGE_ANN,
+breaks = c(0, 30, 40, 50, 60, 70, 80, 120),
+labels = c("<30", "30-39", "40-49", "50-59", "60-69", "70-79", "≥80")
+)
+
+age_summary <- data_patients %>%
+group_by(tranche_age) %>%
+summarise(n = n()) %>%
+mutate(pourcentage = round(n / sum(n) * 100, 1))
+
+age_summary
+```
+
+Pour une meilleure visualisation:
+
+```{r}
+ggplot(age_summary, aes(x = tranche_age, y = n)) +
+geom_col(fill = "steelblue", color = "black", alpha = 0.8) +
+geom_text(
+aes(label = paste0(n, " (", pourcentage, "%)")),
+vjust = -0.3,
+size = 3
+) +
+labs(
+title = "Répartition des patients par tranche d’âge",
+x = "Tranche d’âge (années)",
+y = "Nombre de patients"
+) +
+theme_minimal()
+
+```
+
+## Distribution par sexe des patients
+
+```{r}
+# Tableau de distribution par sexe
+sexe_summary <- data_patients %>%
+  group_by(Sexe) %>%
+  summarise(
+    effectif = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    pourcentage = round(effectif / sum(effectif) * 100, 1)
+  )
+
+print(sexe_summary)
+
+ggplot(sexe_summary, aes(x = Sexe, y = effectif, fill = Sexe)) +
+  geom_col(alpha = 0.8, color = "black") +
+  geom_text(
+    aes(label = paste0(effectif, " (", pourcentage, "%)")),
+    vjust = -0.3,
+    size = 4
+  ) +
+  coord_cartesian(ylim = c(0, 2000)) +   # 👈 MODIFIE ICI selon ton besoin
+  labs(
+    title = "Répartition des patients greffés par sexe",
+    subtitle = paste("n =", nrow(data_patients), "patients"),
+    x = "Sexe",
+    y = "Nombre de patients"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+
+```
+
+commentaires.....
+
+## Analyse des séjour post-greffe
+
+### Durée de séjour par patients
+
+Dans les préliminaires , nous avons constater que les patients peuvent avoir plusieurs séjours , nous avons décidé de vérifier le nombre exacte de séjour par patients
+
+D'abord nous regardons la durée de séjour par ligne dans la base de données avant de faire le regroupement par patient
+
+```{r}
+data$duree_sejour <- as.numeric(data$fin_sejour - data$debut_sejour)
+data$duree_sejour[data$duree_sejour == 0] <- 1
+```
+
+Remarquons que lorsque la durée du séjour fait 0, nous l'initialisons à 1 afin d'avoir une bonne représentativité vu l'opération mathématique qui est réalisée.
+
+Nous groupons maintenant par patient:
+
+```{r}
+sejours_par_patient) <- data %>%
+  group_by(study_id) %>%
+  summarise(nb_sejours = n()) %>%
+  ungroup()
+
+cat("\nNombre de séjours par patient :\n")
+print(summary(sejours_par_patient$nb_sejours))
+```
+
+Hétérogénéité majeure : De 1 à 3 101 séjours !
+
+25% avec peu de suivi (1-2 séjours)
+
+50% avec suivi standard (2-7 séjours)
+
+25% avec suivi intensif (\>7 séjours)
+
+La médiane (4) est plus représentative que la moyenne (7.95)
+
+### Graphiquement
+
+```{r}
+dist_sejours <- table(table(data$study_id))
+
+barplot(
+  dist_sejours,
+  xlab = "Nombre de séjours par patient",
+  ylab = "Nombre de patients",
+  main = "Distribution du nombre de séjours par patient",
+  col = "steelblue"
+)
+```
+
+401 patients ont 1 seul séjour (probablement juste la greffe, sans réhospitalisation) ligne de code 102
+
+436 patients ont 2 séjours \# La majorité des patients ont entre 1 et 10 séjours
+
+Quelques patients ont un suivi très intensif : jusqu'à 3101 séjours pour un patient !
+
+### Densité des séjours
+
+```{r}
+# # Délai entre greffe et début du séjour de suivi (en jours)
+data$delai_greffe_suivi <- as.numeric(data$debut_sejour - data$date_greffe)
+
+# Durée du séjour de suivi (en jours)
+data$duree_sejour <- as.numeric(data$fin_sejour - data$debut_sejour)
+
+# Distribution temporelle des séjours de suivi
+delais_tranches <- table(cut(data$delai_greffe_suivi, 
+                             breaks = c( 0, 7, 30, 90, 180, 365, Inf),
+                             labels = c("0-7j", "8-30j", "1-3mois", 
+                                        "3-6mois", "6-12mois", ">12mois")))
+cat("\nDistribution temporelle des séjours de suivi :\n")
+print(delais_tranches)
+cat("\nPourcentages :\n")
+print(round(prop.table(delais_tranches) * 100, 1))
+
+
+# Graphiquement :
+
+df_plot <- as.data.frame(delais_tranches)
+colnames(df_plot) <- c("classe_delai", "nb_sejours")
+
+# Forcer l’ordre logique des classes
+df_plot$classe_delai <- factor(
+  df_plot$classe_delai,
+  levels = c("Négatif", "0-7j", "8-30j", "1-3mois",
+             "3-6mois", "6-12mois", ">12mois")
+)
+
+ggplot(df_plot, aes(x = classe_delai, y = nb_sejours)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Distribution temporelle des séjours de suivi",
+    x = "séjour de suivi",
+    y = "Nombre de séjours"
+  ) +
+  theme_minimal()
+```
+
+Concentration majeure entre 1 et 6 mois
+
+Le pic principal se situe dans la classe 1–3 mois, qui regroupe le plus grand nombre de séjours.
+
+Les classes 3–6 mois et 8–30 jours présentent également des effectifs élevés.
+
+Cela traduit une intensité du suivi dans les premiers mois post-greffe, période critique sur le plan médical.
+
+Suivi précoce mais non immédiat
+
+Les séjours dans les 0–7 jours sont relativement peu nombreux comparés aux classes suivantes.
+
+Le suivi immédiat post-greffe semble moins fréquent dans cette base, ou bien géré dans un autre cadre (hospitalisation initiale).
+
+Diminution progressive à long terme
+
+Les séjours entre 6–12 mois sont encore présents mais en baisse. \# Les séjours à plus de 12 mois sont très rares. \# Le suivi devient plus espacé à mesure que le temps depuis la greffe augmente. \# conclusion chat \# La distribution temporelle des séjours de suivi met en évidence une forte concentration \# des consultations dans les premiers mois suivant la greffe, avec un pic marqué entre 1 et 3 mois. \# Cette dynamique est cohérente avec les protocoles de suivi intensif post-greffe. \# Les séjours à plus long terme deviennent progressivement moins fréquents, \# traduisant un espacement du suivi pour les patients stabilisés.
+
+## Nombre de greffe par patients
+
+```{r}
+greffes_par_patient <- data %>%
+  distinct(study_id, date_greffe, RSA_NUM) %>%
+  group_by(study_id) %>%
+  summarise(nb_greffes = n()) %>%
+  ungroup()
+
+cat("\nNombre de greffes par patient :\n")
+print(table(greffes_par_patient$nb_greffes))
+```
+
+## Distribution du nombre de greffe par mois
+
+```{r}
+# Distribution temporelle des greffes
+data_patients$mois_greffe <- format(data_patients$date_greffe, "%Y-%m")
+
+# Créer variables mois et année
+data_patients$annee <- format(data_patients$date_greffe, "%Y")
+data_patients$mois_num <- format(data_patients$date_greffe, "%m")
+
+# Calculer le nombre par mois et année
+greffes_heatmap <- data_patients %>%
+  mutate(mois = as.Date(format(date_greffe, "%Y-%m-01"))) %>%
+  group_by(mois) %>%
+  summarise(nb_greffes = n(), .groups = "drop")
+
+
+# Graphiquement
+ggplot(greffes_heatmap, aes(x = mois, y = nb_greffes)) +
+  geom_col(fill = "lightblue", color = "black", alpha = 0.7) +
+  labs(
+    title = "Évolution mensuelle du nombre de greffes rénales",
+    x = "Date",
+    y = "Nombre de greffes"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+
+```
+
+-   Après un **niveau très faible en début de période**, le nombre mensuel de greffes augmente rapidement.
+
+    L’activité se stabilise ensuite autour d’un **plateau compris approximativement entre 200 et 300 greffes par mois**.
+
+    Une **baisse en fin de période** est visible.(liée à une période incomplète de collecte des donnée? ou vrai dimunition)
+
+## Top 10 des diagnostics principaux chez les patients
+
+```{r}
+# Préparation des données
+top_dgn_pal <- sort(table(data_patients$DGN_PAL), decreasing = TRUE)[1:10]
+df_dgn <- data.frame(
+  diagnostic = names(top_dgn_pal),
+  nombre = as.numeric(top_dgn_pal)
+)
+
+# Calculer les pourcentages
+df_dgn$pourcentage <- round(df_dgn$nombre / nrow(data_patients) * 100, 1)
+
+# Réordonner pour le graphique (du plus fréquent au moins fréquent)
+df_dgn$diagnostic <- factor(df_dgn$diagnostic, 
+                            levels = df_dgn$diagnostic)
+
+
+# Graphiquement 
+ggplot(df_dgn, aes(x = reorder(diagnostic, nombre), y = nombre)) +
+  geom_bar(stat = "identity", fill = "steelblue", color = "black") +
+  geom_text(aes(label = paste0(nombre, " (", pourcentage, "%)")), 
+            hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  labs(title = "Top 10 des diagnostics principaux à la greffe",
+       subtitle = "Nombre de patients et pourcentage",
+       x = "Code diagnostic (CIM-10)",
+       y = "Nombre de patients") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+```
+
+On a besoin de connaitre la signification des codes pour savoir quelle interprétation donnée
+
+## Top 10 des dignostics relié à la greffe
+
+```{r}
+top_dgn_rel <- sort(table(data_patients$DGN_REL), decreasing = TRUE)[1:10]
+df_dgn_rel <- data.frame(
+  diagnostic = names(top_dgn_rel),
+  nombre = as.numeric(top_dgn_rel)
+)
+
+# Calculer les pourcentages
+df_dgn_rel$pourcentage <- round(df_dgn_rel$nombre / nrow(data_patients) * 100, 1)
+
+# Graphquement
+ggplot(df_dgn_rel, aes(x = reorder(diagnostic, nombre), y = nombre)) +
+  geom_bar(stat = "identity", fill = "coral", color = "black") +
+  geom_text(aes(label = paste0(nombre, " (", pourcentage, "%)")), 
+            hjust = -0.1, size = 3.5, fontface = "bold") +
+  coord_flip() +
+  labs(title = "Top 10 des diagnostics reliés à la greffe",
+       subtitle = paste("n =", nrow(data_patients), "patients"),
+       x = "Code diagnostic relié (CIM-10)",
+       y = "Nombre de patients") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        panel.grid.major.y = element_blank()) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+```
+
+Idem , on ne peut pas dire grand chose( code vide==XXXX ? )
+
+## Top 10 des établissement qui font plus de greffe
+
+```{r}
+# Préparer les données
+top_eta <- sort(table(data_patients$ETA_NUM), decreasing = TRUE)[1:10]
+df_eta <- data.frame(
+  etablissement = names(top_eta),
+  nombre = as.numeric(top_eta)
+)
+
+# Calculer les pourcentages
+df_eta$pourcentage <- round(df_eta$nombre / nrow(data_patients) * 100, 1)
+
+# Calculer le nombre total d'établissements
+nb_etablissements <- length(unique(data_patients$ETA_NUM))
+
+# Calculer la part des "autres" établissements
+nb_top10 <- sum(df_eta$nombre)
+nb_autres <- nrow(data_patients) - nb_top10
+
+
+# GRAPHIQUE : Barplot horizontal avec pourcentages
+
+ggplot(df_eta, aes(x = reorder(etablissement, nombre), y = nombre)) +
+  geom_bar(stat = "identity", fill = "darkgreen", color = "black", alpha = 0.8) +
+  geom_text(aes(label = paste0(nombre, " (", pourcentage, "%)")), 
+            hjust = -0.1, size = 3.5, fontface = "bold") +
+  coord_flip() +
+  labs(title = "Top 10 des établissements réalisant des greffes rénales",
+       subtitle = paste("Sur", nb_etablissements, "établissements au total |",
+                        nrow(data_patients), "patients greffés"),
+       x = "Code établissement",
+       y = "Nombre de greffes réalisées") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 13),
+        plot.subtitle = element_text(size = 10),
+        panel.grid.major.y = element_blank()) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+```
+
+Concentration extrême sur UN établissement :
+
+750712184 : 528 greffes (19% du total) → Centre ultra-dominant
+
+Presque 3x plus que le 2ème établissement \#
+
+À lui seul = autant que les 7 suivants réunis
+
+Distribution des autres centres :
+
+2ème rang (330781196) : 188 greffes (6.8%) → Écart énorme avec le 1er
+
+3ème au 10ème rang : entre 102 et 180 greffes (3.7% à 6.5%)
+
+Distribution relativement homogène entre eux (pas de 2ème "super-centre")
+
+Activité des 10 premiers :
+
+Total Top 10 : ≈ 1753 greffes
+
+\% du total : 1753/2784 = 63% des greffes réalisées par 10 centres sur 30
+
+20 autres centres se partagent seulement 37% de l'activité
+
+# ANALYSE BIVARIEES
+
+## Durée de séjour par sexe
+
+Nous allons joindre l'information du sexe (présente dans `data_patients`) à notre décompte de séjours.
+
+```{r}
+sejours_sexe <- sejours_par_patient %>%
+  left_join(data_patients %>% select(study_id, Sexe), by = "study_id")
+
+head(sejours_sexe)
+```
+
+```{r}
+summary_sejours_sexe <- sejours_sexe %>%
+  group_by(Sexe) %>%
+  summarise(
+    n_patients = n(),
+    moyenne = round(mean(nb_sejours), 2),
+    mediane = median(nb_sejours),
+    ecart_type = round(sd(nb_sejours), 2),
+    max = max(nb_sejours)
+  )
+
+print(summary_sejours_sexe)
+```
+
+Visualisation :
+
+```{r}
+ggplot(sejours_sexe, aes(x = Sexe, y = nb_sejours, fill = Sexe)) +
+  geom_boxplot(alpha = 0.7) +
+  # On limite l'affichage à 50 séjours pour que le graphique soit lisible
+  coord_cartesian(ylim = c(0, 50)) + 
+  labs(
+    title = "Nombre de séjours post-greffe par sexe",
+    subtitle = "Zoom sur les patients (0 à 50 séjours)",
+    x = "Sexe",
+    y = "Nombre total de séjours"
+  ) +
+  theme_minimal()
+```
+
+Test Statistique (Mann-Whitney / Wilcoxon) Vu que les données sont très étalées
+
+```{r}
+wilcox.test(nb_sejours ~ Sexe, data = sejours_sexe)
+```
+
+Le test de Wilcoxon cherche à déterminer si la distribution du nombre de séjours est significativement différente entre les hommes et les femmes. Comme vous avez des valeurs très extrêmes (le patient à 3101 séjours), ce test est idéal car il ne se laisse pas influencer par ces "outliers" (valeurs aberrantes), contrairement à un test de moyenne classique.
+
+Interprétation du test :
+
+Le test de Wilcoxon compare la distribution du nombre de séjours entre les hommes et les femmes. Avec une p value de 0,24, le test n'est pas significatif au seuil de 5 %. Cela signifie qu'il n'existe pas de preuve statistique d'une différence de comportement de suivi entre les deux sexes.
+
+Le sexe du patient ne semble pas être un facteur influençant l'intensité du parcours de soins post-greffe (nombre de réhospitalisations ou de consultations). Les hommes et les femmes reçoivent, en moyenne, un nombre de soins équivalent dans cette cohorte.
+
+## Distribution de l’âge à la greffe par sexe
+
+```{r}
+summary_age_sexe <- data_patients %>%
+  group_by(Sexe) %>%
+  summarise(
+    n = n(),
+    age_moyen = mean(AGE_ANN, na.rm = TRUE),
+    age_mediane = median(AGE_ANN, na.rm = TRUE),
+    ecart_type = sd(AGE_ANN, na.rm = TRUE)
+  )
+print(summary_age_sexe)
+```
+
+Visualisation :
+
+```{r}
+ggplot(data_patients, aes(x = Sexe, y = AGE_ANN, fill = Sexe)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(
+    title = "Comparaison de l'âge des patients par sexe",
+    subtitle = "Base agrégée (1 ligne par patient)",
+    x = "Sexe",
+    y = "Âge (années)"
+  ) +
+  theme_minimal()
+```
+
+Proposition de test statistique: t_test
+
+```{r}
+t.test(AGE_ANN ~ Sexe, data = data_patients)
+```
+
+Observation : Les hommes de l'échantillon sont en moyenne légèrement plus âgés que les femmes (environ 1,7 an de différence). Les médianes confirment cette tendance (57 ans pour les hommes contre 55 ans pour les femmes).
+
+Résultat du test t :
+
+-   **Interprétation :** La p-value est largement inférieure au seuil de **0,05**. Cela signifie que la différence d'âge entre les hommes et les femmes est **statistiquement significative**.
+
+    Bien que la différence soit statistiquement réelle, elle reste de faible ampleur (moins de 2 ans). Cela peut suggérer que les hommes ont tendance à être greffés à un âge légèrement plus avancé que les femmes.
+
+Voyons cela avec le calcul de l'état carré pour la puissance du test :
+
+```{r}
+library(effectsize)
+t_to_eta2(t = 2.9093, df_error = 2137.2)
+```
+
+On voit bien la valeur de l'état carré très faible. D'où la confirmation de ce qu'on disait.
+
+## Durée de suivi par âge
+
+.forte dispersion des parcours de soins, quel que soit l'âge du patient
+
+Pour l’ensemble des âges, la majorité des patients présente une durée cumulée de séjour relativement faible (souvent inférieure à 100 jours), tandis qu’un nombre restreint de patients connaît des durées nettement plus élevées, traduisant des parcours de soins complexes ou des complications post-greffe. Cette hétérogénéité est observable à tous les âges, y compris chez les patients jeunes.
+
+tendance légèrement croissante de la durée totale de séjour avec l’âge : Toutefois, cette augmentation reste modérée et largement masquée par la variabilité interindividuelle très importante.
+
+Biais éventuels :
+
+**Censure temporelle des données :** BDD limitée à 2022. Les patients greffés en fin de période disposent mécaniquement d’un temps de suivi plus court =\> censure à droite de la durée.
+
+**Durée de suivi variable selon les patients** Les patients plus anciens dans la base ont mécaniquement davantage d’opportunités d’accumuler des séjours, ce qui peut confondre l’effet de l’âge avec celui du temps d’observation.
+
+```{r}
+
+# Durée totale de séjour par patient (en jours)
+duree_par_patient <- data %>%
+  mutate(
+    duree_sejour = as.numeric(fin_sejour - debut_sejour),
+    duree_sejour = ifelse(duree_sejour <= 0, 1, duree_sejour)
+  ) %>%
+  group_by(study_id) %>%
+  summarise(
+    duree_totale = sum(duree_sejour, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Jointure avec l'âge à la greffe
+duree_age <- duree_par_patient %>%
+  left_join(
+    data_patients %>% select(study_id, AGE_ANN),
+    by = "study_id"
+  )
+
+summary(duree_age)
+
+
+ggplot(duree_age, aes(x = AGE_ANN, y = duree_totale)) +
+  geom_point(alpha = 0.3, color = "steelblue") +
+  geom_smooth(
+    method = "loess",
+    se = FALSE,
+    color = "red",
+    linewidth = 1.2
+  ) +
+  coord_cartesian(ylim = c(0, 400)) +
+  labs(
+    title = "Durée totale de séjour post-greffe selon l’âge à la greffe",
+    subtitle = "Axe des ordonnées limité à 1000 jours (meilleure lisibilité)",
+    x = "Âge à la greffe (années)",
+    y = "Durée totale de séjour (jours)"
+  ) +
+  theme_minimal()
+```
+
+test de spearman : suppose pas de relation linéaire ni de normalité (avec des valeurs extrêmes, censurée ou tronquée ? pas forcément normal)
+
+```{r}
+cor_spearman <- cor.test(
+  duree_age$AGE_ANN,
+  duree_age$duree_totale,
+  method = "spearman",
+  exact = FALSE
+)
+
+print(cor_spearman)
+
+```
+
+Afin de limiter ces biais, une **analyse complémentaire restreinte à une durée de suivi maximale de 100j post-greffe** sera réalisée. Cette approche permettra :
+
+d’homogénéiser la fenêtre d’observation entre les patients,de réduire l’effet de la censure temporelle, et d’évaluer plus finement l’impact de l’âge sur l’intensité du suivi à court
+
+```{r}
+# Un séjour qui dépasse 100 jours est tronqué mais pas supprimé 
+# Définition de la fenêtre de suivi (100 jours)
+fenetre_100j <- 100
+
+data_100j <- data %>%
+  mutate(
+    # Délai entre greffe et début du séjour
+    delai_greffe_sejour = as.numeric(debut_sejour - date_greffe),
+
+    # Fin théorique du suivi à 12 mois
+    fin_suivi_100j = date_greffe + fenetre_100j,
+
+    # Fin réelle du séjour tronquée à 100j
+    fin_sejour_tronquee = pmin(fin_sejour, fin_suivi_100j),
+
+    # Durée de séjour dans la fenêtre des 12 mois
+    duree_sejour_100j = as.numeric(fin_sejour_tronquee - debut_sejour)
+  ) %>%
+  # Conserver uniquement les séjours qui commencent dans les 12 mois
+  filter(delai_greffe_sejour >= 0 & delai_greffe_sejour <= fenetre_100j) %>%
+  mutate(
+    duree_sejour_100j = ifelse(duree_sejour_100j <= 0, 1, duree_sejour_100j)
+  )
+
+```
+
+```{r}
+duree_100j_par_patient <- data_100j %>%
+  group_by(study_id) %>%
+  summarise(
+    duree_totale_100j = sum(duree_sejour_100j, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Jointure avec l'âge à la greffe
+duree_age_100j <- duree_100j_par_patient %>%
+  left_join(
+    data_patients %>% select(study_id, AGE_ANN),
+    by = "study_id"
+  )
+
+summary(duree_age_100j)
+
+```
+
+```{r}
+duree_100j_par_patient <- data_100j %>%
+  group_by(study_id) %>%
+  summarise(
+    duree_totale_100j = sum(duree_sejour_100j, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Jointure avec l'âge à la greffe
+duree_age_100j <- duree_100j_par_patient %>%
+  left_join(
+    data_patients %>% select(study_id, AGE_ANN),
+    by = "study_id"
+  )
+
+summary(duree_age_100j)
+
+duree_100j_par_patient <- data_100j %>%
+  group_by(study_id) %>%
+  summarise(
+    duree_totale_100j = sum(duree_sejour_100j, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Jointure avec l'âge à la greffe
+duree_age_100j<- duree_100j_par_patient %>%
+  left_join(
+    data_patients %>% select(study_id, AGE_ANN),
+    by = "study_id"
+  )
+
+summary(duree_age_100j)
+
+```
+
+```{r}
+ggplot(duree_age_100j, aes(x = AGE_ANN, y = duree_totale_100j)) +
+  geom_point(alpha = 0.3, color = "steelblue") +
+  geom_smooth(
+    method = "loess",
+    se = FALSE,
+    color = "red",
+    linewidth = 1.2
+  ) +
+  coord_cartesian(ylim = c(0, 100)) +
+  labs(
+    title = "Durée totale de séjour post-greffe (≤ 100j) selon l’âge",
+    subtitle = "Fenêtre de suivi homogène – lissage LOESS",
+    x = "Âge à la greffe (années)",
+    y = "Durée totale de séjour sur 100j"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+cor_spearman_100j <- cor.test(
+  duree_age_100j$AGE_ANN,
+  duree_age_100j$duree_totale_100j,
+  method = "spearman",
+  exact = FALSE
+)
+
+print(cor_spearman_100j)
+
+```
+
+```{r}
+
+# Création des classes d'âge
+duree_age_100j <- duree_100j_par_patient %>%
+  left_join(
+    data_patients %>% select(study_id, AGE_ANN),
+    by = "study_id"
+  ) %>%
+  mutate(
+    classe_age = cut(
+      AGE_ANN,
+      breaks = c(-Inf, 29, 39, 49, 59, 69, 79, Inf),
+      labels = c("<30", "30-39", "40-49", "50-59", "60-69", "70-79", "≥80"),
+      right = TRUE
+    )
+  )
+
+# Vérifions un résumé
+table(duree_age_100j$classe_age)
+
+# Graphique : boxplot par classe d'âge
+ggplot(duree_age_100j, aes(x = classe_age, y = duree_totale_100j)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.5, outlier.shape = NA) +
+  #geom_jitter(width = 0.2, alpha = 0.3, color = "darkblue") +
+  labs(
+    title = "Durée totale de séjour post-greffe (≤ 12 mois) selon les classes d’âge",
+    x = "Classe d’âge (années)",
+    y = "Durée totale de séjour sur 12 mois (jours)"
+  ) +
+  theme_minimal()
+
+```
+
+Test de Kruskal–Wallis : distributions asymétriques, variances différentes, comparaison de \>2 groupes epsilon_carré = l’équivalent non paramétrique du R². `kruskal.test()` effectue le test de comparaison des distributions entre les classes d’âge. La statistique de Kruskal–Wallis (`H`) est transformée en **eta²** pour avoir un **indicateur de force d’association** entre la classe d’âge et la durée totale `eta2` varie entre 0 et 1 : plus elle est proche de 1, plus l’association est forte. `k` = nombre de classes d’âge, `n` = nombre total de patients.
+
+```{r}
+# Test de Kruskal-Wallis
+kruskal_test <- kruskal.test(duree_totale_100j ~ classe_age, data = duree_age_100j)
+kruskal_test
+
+# Calcul de l'eta carré pour Kruskal-Wallis (taille d'effet)
+# formule : eta2 = (H - k + 1) / (n - k), H = statistique du test, k = nb de groupes, n = taille totale
+H <- kruskal_test$statistic
+k <- length(unique(duree_age_100j$classe_age))
+n <- nrow(duree_age_100j)
+eta2 <- (H - k + 1) / (n - k)
+
+eta2
+
+```
+
+## Diagnostic principal × âge
+
+Dans la base de données, nous avons beaucoup de modalités par les diagnostics principaux. Dans l'optique d'avoir des résultats visibles, nous choisissons de prendre le top 5 juste pour l'analyse bivariée car en considérant toutes les modalités, nous obtenons pas de résultats interprétables.
+
+Ajoutons d'abord les tranches d'âge dans data_patients
+
+```{r}
+data_patients <- data %>%
+  group_by(study_id) %>%
+  arrange(date_greffe) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(
+    # Votre code existant
+    Sexe = factor(COD_SEX, levels = c(1, 2), labels = c("Masculin", "Féminin")),
+    
+    # L'ajout de la tranche d'âge
+    tranche_age = cut(
+      AGE_ANN,
+      breaks = c(0, 30, 40, 50, 60, 70, 80, 120),
+      labels = c("<30", "30-39", "40-49", "50-59", "60-69", "70-79", "≥80"),
+      right = FALSE
+    )
+  )
+```
+
+Extraction du Top 5 des codes diagnostics par tranche d'âge
+
+```{r}
+top5_dgn_age <- data_patients %>%
+  group_by(tranche_age, DGN_PAL) %>%
+  summarise(effectif = n(), .groups = "drop") %>%
+  group_by(tranche_age) %>%
+  slice_max(order_by = effectif, n = 5) %>%
+  ungroup()
+
+print(top5_dgn_age)
+```
+
+Visualisation : graphique par facettes
+
+```{r}
+ggplot(top5_dgn_age, aes(x = reorder(DGN_PAL, effectif), y = effectif, fill = tranche_age)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~tranche_age, scales = "free_y") +
+  labs(
+    title = "Top 5 des codes diagnostics principaux par tranche d'âge",
+    x = "Code Diagnostic",
+    y = "Nombre de patients"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Interprétations : Le code **Z940** est l'étiquette dominante pour toutes les tranches d'âge. Les codes **Z512** et **RSSABS** complètent régulièrement le podium, montrant une certaine uniformité dans le codage des dossiers, peu importe l'âge.
+
+On remarque aussi que pour les tranches d'âges élevées( plus de 70 ans), de nouveaux codes apparaissent dans le Top 5 (comme Z491 ou T861), ce qui n'est pas le cas chez les plus jeunes.
+
+Procédons maintenant à un test de chi-deux.
+
+Réalisation du test du Chi-deux:
+
+```{r}
+# 1. Création de la table de contingence
+table_dgn_age <- table(data_patients$tranche_age, data_patients$DGN_PAL)
+
+# 2. Réalisation du test du Chi-deux
+test_chi2 <- chisq.test(table_dgn_age)
+
+# 3. Affichage du résultat
+print(test_chi2)
+```
+
+Il n'y a pas de lien statistiquement significatif entre l'âge du patient et son diagnostic principal vu que le test n'est pas significatif (La valeur de la p-value). Les motifs de prise en charge sont distribués de manière similaire à travers toutes les tranches d'âge.
+
+## Diagnostic principal × durée moyenne de séjour
+
+```{r}
+# Durée totale de séjour par patient (déjà cohérent avec ce que vous avez fait)
+duree_par_patient <- data %>%
+  mutate(
+    duree_sejour = as.numeric(fin_sejour - debut_sejour),
+    duree_sejour = ifelse(duree_sejour <= 0, 1, duree_sejour)
+  ) %>%
+  group_by(study_id) %>%
+  summarise(
+    duree_totale = sum(duree_sejour, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Jointure avec le diagnostic principal à la greffe
+duree_diagnostic <- duree_par_patient %>%
+  left_join(
+    data_patients %>% select(study_id, DGN_PAL),
+    by = "study_id"
+  )
+
+```
+
+évite l'effet bruit et rend les résultats lisibles
+
+```{r}
+# Top 5 diagnostics principaux
+top5_dgn <- data_patients %>%
+  count(DGN_PAL, sort = TRUE) %>%
+  slice_head(n = 5) %>%
+  pull(DGN_PAL)
+
+duree_diagnostic_top5 <- duree_diagnostic %>%
+  filter(DGN_PAL %in% top5_dgn)
+
+```
+
+-   Moyenne \> médiane → asymétrie à droite
+
+    Variabilité importante selon le diagnostic
+
+    Justifie l’usage de tests non paramétriques
+
+```{r}
+table_duree_dgn <- duree_diagnostic_top5 %>%
+  group_by(DGN_PAL) %>%
+  summarise(
+    n_patients = n(),
+    duree_moyenne = round(mean(duree_totale), 1),
+    duree_mediane = median(duree_totale),
+    ecart_type = round(sd(duree_totale), 1),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(duree_moyenne))
+
+print(table_duree_dgn)
+
+```
+
+```{r}
+ggplot(duree_diagnostic_top5,
+       aes(x = reorder(DGN_PAL, duree_totale, FUN = median),
+           y = duree_totale)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.6, outlier.shape = NA) +
+  coord_cartesian(ylim = c(0, 150)) +
+  labs(
+    title = "Durée totale de séjour post-greffe selon le diagnostic principal",
+    subtitle = "Top 5 des diagnostics – niveau patient",
+    x = "Diagnostic principal (CIM-10)",
+    y = "Durée totale de séjour (jours)"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+kruskal_dgn <- kruskal.test(
+  duree_totale ~ DGN_PAL,
+  data = duree_diagnostic_top5
+)
+
+kruskal_dgn
+
+```
+
+```{r}
+# Calcul de l'eta carré
+H <- kruskal_dgn$statistic
+k <- length(unique(duree_diagnostic_top5$DGN_PAL))
+n <- nrow(duree_diagnostic_top5)
+
+eta2_dgn <- (H - k + 1) / (n - k)
+eta2_dgn
+
+```
+
+La durée totale de séjour post-greffe varie fortement selon le diagnostic principal à la greffe. Le graphique met en évidence une **augmentation progressive de la durée de séjour médiane et de la dispersion** en fonction des diagnostics, avec des profils de parcours très contrastés.
+
+Les patients codés **Z940** et **Z512** présentent des durées de séjour globalement courtes et peu dispersées, traduisant des parcours de soins relativement simples et standardisés.\
+À l’inverse, les diagnostics **RSSABS** et surtout **Z491** sont associés à des durées de séjour nettement plus longues, avec une variabilité très importante, suggérant des parcours plus complexes, probablement liés à des complications, des reprises chirurgicales ou un suivi médical intensif.
+
+Le test de **Kruskal–Wallis** met en évidence une différence statistiquement significative entre les diagnostics principaux (p-value \< 0,05). La taille d’effet mesurée par l’eta carré (η² = 0,186) indique une **association forte** entre le diagnostic principal à la greffe et l’intensité du parcours de soins post-greffe. Autrement dit, près de **19 % de la variabilité de la durée totale de séjour** est expliquée par le diagnostic principal.
+
+## Diagnostic × nombre de réhospitalisations
+
+```{r}
+data <- data %>%
+  mutate(
+    duree_sejour = as.numeric(fin_sejour - debut_sejour),
+    duree_sejour = ifelse(duree_sejour <= 0, 1, duree_sejour)
+  )
+
+```
+
+```{r}
+# comptage des réhospitalisations 
+rehosp_par_patient <- data %>%
+  filter(duree_sejour > 1) %>%      
+  group_by(study_id) %>%
+  summarise(
+    nb_rehospitalisations = n(),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+# réintégration des patients sans réhospitalisation
+rehosp_par_patient <- data_patients %>%
+  select(study_id) %>%
+  left_join(rehosp_par_patient, by = "study_id") %>%
+  mutate(
+    nb_rehospitalisations = ifelse(
+      is.na(nb_rehospitalisations), 0, nb_rehospitalisations
+    )
+  )
+
+# jointure avec le diagnoqtique principal 
+rehosp_diagnostic <- rehosp_par_patient %>%
+  left_join(
+    data_patients %>% select(study_id, DGN_PAL),
+    by = "study_id"
+  )
+
+# restrictions auw diagnistiques principaux les plus fréquents
+top5_dgn <- data_patients %>%
+  count(DGN_PAL, sort = TRUE) %>%
+  slice_head(n = 5) %>%
+  pull(DGN_PAL)
+
+rehosp_diagnostic_top5 <- rehosp_diagnostic %>%
+  filter(DGN_PAL %in% top5_dgn)
+
+```
+
+```{r}
+# tableau descriptif
+table_rehosp_dgn <- rehosp_diagnostic_top5 %>%
+  group_by(DGN_PAL) %>%
+  summarise(
+    n_patients = n(),
+    moyenne = round(mean(nb_rehospitalisations), 2),
+    mediane = median(nb_rehospitalisations),
+    ecart_type = round(sd(nb_rehospitalisations), 2),
+    max = max(nb_rehospitalisations),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(moyenne))
+
+print(table_rehosp_dgn)
+
+```
+
+```{r}
+# graphique 
+ggplot(rehosp_diagnostic_top5,
+       aes(x = reorder(DGN_PAL, nb_rehospitalisations, FUN = median),
+           y = nb_rehospitalisations)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.6, outlier.shape = NA) +
+  coord_cartesian(ylim = c(0, 30)) +
+  labs(
+    title = "Nombre de réhospitalisations post-greffe (> 1 jour)",
+    subtitle = "Durée calculée selon la définition du projet",
+    x = "Diagnostic principal (CIM-10)",
+    y = "Nombre de réhospitalisations"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+# test de kruskal wallis
+kruskal_rehosp <- kruskal.test(
+  nb_rehospitalisations ~ DGN_PAL,
+  data = rehosp_diagnostic_top5
+)
+
+kruskal_rehosp
+
+```
+
+```{r}
+# effet 
+H <- kruskal_rehosp$statistic
+k <- length(unique(rehosp_diagnostic_top5$DGN_PAL))
+n <- nrow(rehosp_diagnostic_top5)
+
+eta2_rehosp <- (H - k + 1) / (n - k)
+eta2_rehosp
+
+```
