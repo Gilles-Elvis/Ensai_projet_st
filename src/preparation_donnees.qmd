@@ -87,6 +87,14 @@ data$debut_sejour <- as.Date(data$debut_sejour_clean, format="%d%b%Y")
 data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
 ```
 
+### Tri de la base par date de greffe
+
+```{r}
+
+data <- data %>%arrange(date_greffe)
+View(data)
+```
+
 ## Création de la variable tranche d'âge
 
 ```{r}
