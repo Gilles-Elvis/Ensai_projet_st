@@ -90,5 +90,9 @@ data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
 Code pour la création de la base
 
 ```{r}
-saveRDS(donnees, "donnees.rds")
+saveRDS(data, "data.rds")
+```
+
+```{r}
+
 ```
