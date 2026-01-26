@@ -1,0 +1,94 @@
+---
+title: "preparation_donnees"
+format: html
+editor: visual
+---
+
+# PRELIMINAIRES
+
+## Chargement des packages
+
+```{r}
+# Installer les packages si nécessaire (décommenter si besoin)
+# install.packages("dplyr")
+# install.packages("ggplot2")
+# install.packages("lubridate")
+
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+```
+
+## Importation des données
+
+```{r}
+data = read.csv("donnees.csv", header = TRUE, sep = ";")
+View(data)
+```
+
+## Vérifier l'importation
+
+```{r}
+cat("Nombre de lignes :", nrow(data), "\n")
+cat("Nombre de colonnes :", ncol(data), "\n")
+```
+
+## Structure des données
+
+```{r}
+str(data)
+```
+
+```{r}
+summary(data)
+```
+
+## Variables manquantes
+
+```{r}
+est_manquant <- function(x) {
+  is.na(x) | (is.character(x) & trimws(x) == "")
+}
+
+# Calcul du taux de valeurs manquantes par variable
+taux_manquant <- sapply(data, function(col) {
+  sum(est_manquant(col)) / length(col) * 100
+})
+
+# Dataframe récapitulatif
+missing_df <- data.frame(
+  variable = names(taux_manquant),
+  taux_manquant = taux_manquant
+)
+
+# Tri décroissant par taux de valeurs manquantes
+missing_df <- missing_df[order(-missing_df$taux_manquant), ]
+
+```
+
+## Conversion des dates
+
+Vu la structure des dates , nous l'avons ramener au format utilisable par Rw
+
+```{r}
+# Extraire la partie date (avant les ":")
+# Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
+data$date_greffe_clean <- sub(":.*", "", data$date_greffe)
+data$debut_sejour_clean <- sub(":.*", "", data$debut_sejour)
+data$fin_sejour_clean <- sub(":.*", "", data$fin_sejour)
+
+# Passer en locale anglaise pour reconnaître les mois (JUL, MAR, etc.)
+# pas besoin de ça si votre locale est en anglais déjà
+Sys.setlocale("LC_TIME", "C")
+
+# Convertir en format Date
+data$date_greffe <- as.Date(data$date_greffe_clean, format="%d%b%Y")
+data$debut_sejour <- as.Date(data$debut_sejour_clean, format="%d%b%Y")
+data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
+```
+
+Code pour la création de la base
+
+```{r}
+saveRDS(donnees, "donnees.rds")
+```
