@@ -1429,8 +1429,11 @@ Extraction du Top 5 des codes diagnostics par tranche d'âge
 top5_dgn_age <- data_patients %>%
   group_by(tranche_age, DGN_PAL) %>%
   summarise(effectif = n(), .groups = "drop") %>%
+  # --- AJOUT ICI : On retire RSSABS ---
+  filter(DGN_PAL != "RSSABS") %>% 
+  # ------------------------------------
   group_by(tranche_age) %>%
-  slice_max(order_by = effectif, n = 5) %>%
+  slice_max(order_by = effectif, n = 5, with_ties = FALSE) %>%
   ungroup()
 
 print(top5_dgn_age)
