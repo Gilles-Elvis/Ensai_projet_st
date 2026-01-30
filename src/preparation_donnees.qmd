@@ -87,6 +87,24 @@ data$debut_sejour <- as.Date(data$debut_sejour_clean, format="%d%b%Y")
 data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
 ```
 
+## Création de la variable 'periode_greffe'
+
+```{r}
+data <- data %>%
+  mutate(periode_greffe = if_else(debut_sejour < date_greffe, 
+                                  "Pre_greffe", 
+                                  "Post_greffe"))
+table(data$periode_greffe)
+
+### Tri de la base par date de greffe
+```
+
+
+```{r}
+data <- data %>%arrange(date_greffe)
+View(data)
+```
+
 ## Création de la variable tranche d'âge
 
 ```{r}

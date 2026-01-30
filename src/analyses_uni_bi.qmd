@@ -17,6 +17,9 @@ editor: visual
 library(dplyr)
 library(ggplot2)
 library(lubridate)
+library(rvest)
+library(stringr)
+library(purrr)
 ```
 
 ## Importation des données
@@ -218,6 +221,50 @@ commentaires.....
 ## Analyse des séjour post-greffe
 
 ### Durée de séjour par patients
+
+On isole d'abord les séjours uniques pour ne pas compter plusieurs fois le même séjour (doublons de lignes)
+
+```{r}
+sejours_uniques <- data %>%
+  distinct(study_id, ETA_NUM_suivi, RSA_NUM_suivi, debut_sejour, fin_sejour)
+```
+
+```{r}
+View(sejours_uniques)
+```
+
+Calcul de la durée par séjour (avec la règle du 0 -\> 1)
+
+```{r}
+Sys.setlocale("LC_TIME", "C")
+```
+
+```{r}
+sejours_uniques$duree_sejour <- as.numeric(sejours_uniques$fin_sejour - sejours_uniques$debut_sejour)
+sejours_uniques$duree_sejour[sejours_uniques$duree_sejour == 0] <- 1
+```
+
+Regroupement par patient pour avoir le nombre de séjours ET la durée totale
+
+```{r}
+bilan_par_patient <- sejours_uniques %>%
+  group_by(study_id) %>%
+  summarise(
+    nb_sejours = n(),                    # Nombre de séjours uniques
+    duree_totale_cumulee = sum(duree_sejour, na.rm = TRUE) # Somme des durées
+  ) %>%
+  ungroup()
+```
+
+Affichage des résultats
+
+```{r}
+cat("\nRésumé de la durée totale de séjour par patient :\n")
+print(summary(bilan_par_patient$duree_totale_cumulee))
+
+cat("\nRésumé du nombre de séjours par patient :\n")
+print(summary(bilan_par_patient$nb_sejours))
+```
 
 Dans les préliminaires , nous avons constater que les patients peuvent avoir plusieurs séjours , nous avons décidé de vérifier le nombre exacte de séjour par patients
 
@@ -1021,6 +1068,7 @@ ggplot(carte_regions) +
 
 gvvvvnvbnh
 
+
 ```{r}
 ggplot(carte_regions) +
   geom_sf(aes(fill = nb_greffes), color = "white", linewidth = 0.3) +
@@ -1042,6 +1090,79 @@ ggplot(carte_regions) +
   theme_minimal()
 
 
+=======
+## Récupération de la liste des diagnostics généraux 
+
+```{r}
+liste_dgn_pal <- unique(data$DGN_PAL)
+print(liste_dgn_pal)
+```
+
+Pour une meilleure visualisation :
+
+```{r}
+obtenir_top_diagnostics <- function(data, n = 10) {
+  resultat <- data %>%
+    count(DGN_PAL, name = "Occurrences") %>%  
+    arrange(desc(Occurrences)) %>%           
+    slice_head(n = n)                        
+  
+  return(resultat)
+}
+```
+
+```{r}
+top5 <- obtenir_top_diagnostics(data, n = 7)
+print(top5)
+```
+
+```{r}
+obtenir_diagnostics_avec_noms <- function(data, n = 10) {
+  
+  # 1. Calculer les occurrences
+  top_diagnostics <- data %>%
+    count(DGN_PAL, name = "Occurrences") %>%
+    arrange(desc(Occurrences)) %>%
+    slice_head(n = n)
+  
+  # 2. Fonction interne pour aller chercher la définition sur le site
+  recuperer_definition <- function(code) {
+    # On gère le cas particulier RSSABS qui n'est pas un code CIM standard
+    if (code == "RSSABS") return("Résumé de sortie standardisé - Absence de diagnostic")
+    
+    # Construction de l'URL
+    url <- paste0("https://www.aideaucodage.fr/cim-", code)
+    
+    tryCatch({
+      # Lecture de la page web
+      page <- read_html(url)
+      
+      # Extraction du titre (généralement le format est "Code - Définition")
+      titre <- page %>% html_element("h1") %>% html_text(trim = TRUE)
+      
+      # Nettoyage : On enlève le code du titre pour ne garder que le texte
+      definition <- str_remove(titre, paste0("^", code, " - "))
+      return(definition)
+    }, error = function(e) {
+      return("Définition non trouvée")
+    })
+  }
+  
+  # 3. Appliquer la recherche à chaque ligne (Attention: cela peut prendre quelques secondes)
+  cat("Recherche des définitions sur aideaucodage.fr...\n")
+  top_diagnostics <- top_diagnostics %>%
+    rowwise() %>%
+    mutate(Signification = recuperer_definition(DGN_PAL)) %>%
+    ungroup()
+  
+  return(top_diagnostics)
+}
+```
+
+```{r}
+resultat <- obtenir_diagnostics_avec_noms(data, 10)
+print(resultat)
+>>>>>>> cdff9d62e1cfb732513d822a86dce1d90d174cd9
 ```
 
 # ANALYSE BIVARIEES
@@ -1422,8 +1543,11 @@ Extraction du Top 5 des codes diagnostics par tranche d'âge
 top5_dgn_age <- data_patients %>%
   group_by(tranche_age, DGN_PAL) %>%
   summarise(effectif = n(), .groups = "drop") %>%
+  # --- AJOUT ICI : On retire RSSABS ---
+  filter(DGN_PAL != "RSSABS") %>% 
+  # ------------------------------------
   group_by(tranche_age) %>%
-  slice_max(order_by = effectif, n = 5) %>%
+  slice_max(order_by = effectif, n = 5, with_ties = FALSE) %>%
   ungroup()
 
 print(top5_dgn_age)
