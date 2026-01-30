@@ -108,7 +108,7 @@ Pour les analyses descriptives, une base agrégée au niveau patient (une ligne 
 
 ```{r}
 data_patients <- data %>%
-  group_by(study_id) %>%
+  group_by(study_id, date_greffe) %>%
   arrange(date_greffe) %>%
   slice(1) %>%
   ungroup() %>%
@@ -511,14 +511,10 @@ Total Top 10 : ≈ 1753 greffes
 
 20 autres centres se partagent seulement 37% de l'activité
 
-```{r}
-################################################################################
-# ANALYSE GÉOGRAPHIQUE DES GREFFES PAR DÉPARTEMENT
-################################################################################
+ANALYSE GÉOGRAPHIQUE DES GREFFES PAR DÉPARTEMENT
 
-library(dplyr)
-library(ggplot2)
-library(stringr)
+```{r}
+
 
 # ==============================================================================
 # ÉTAPE 1 : Extraire les départements des codes établissements
@@ -929,7 +925,124 @@ treemap(data_treemap,
 
 v b bn bn
 
+```{r}
+library(sf)
+library(ggplot2)
+library(dplyr)
+
+# Carte des départements français
+departements <- st_read(
+  "https://france-geojson.gregoiredavid.fr/repo/departements.geojson",
+  quiet = TRUE
+)
+
+```
+
+```{r}
+greffes_par_dept <- greffes_par_dept %>%
+  mutate(code_dept = as.character(code_dept))
+
+```
+
+```{r}
+carte_greffes <- departements %>%
+  left_join(greffes_par_dept, by = c("code" = "code_dept"))
+
+```
+
+```{r}
+ggplot(carte_greffes) +
+  geom_sf(aes(fill = nb_greffes), color = "white", linewidth = 0.2) +
+  scale_fill_viridis_c(
+    option = "C",
+    na.value = "grey90",
+    name = "Nombre de greffes"
+  ) +
+  labs(
+    title = "Répartition géographique des greffes rénales en France",
+    subtitle = "Par département",
+    caption = "Source : données hospitalières"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+summary(carte_greffes$nb_greffes)
+
+```
+
+Par région
+
+```{r}
+regions <- st_read(
+  "https://france-geojson.gregoiredavid.fr/repo/regions.geojson",
+  quiet = TRUE
+)
+```
+
+```{r}
+regions_metro <- regions %>%
+  filter(!nom %in% c(
+    "Guadeloupe", "Martinique", "Guyane",
+    "La Réunion", "Mayotte"
+  ))
+
+
+```
+
+```{r}
+carte_regions <- regions_metro %>%
+  left_join(
+    greffes_par_region,
+    by = c("nom" = "region")
+  )
+
+
+```
+
+```{r}
+ggplot(carte_regions) +
+  geom_sf(aes(fill = nb_greffes), color = "white", linewidth = 0.3) +
+  scale_fill_viridis_c(
+    option = "C",
+    na.value = "grey90",
+    name = "Nombre de greffes"
+  ) +
+  labs(
+    title = "Répartition régionale des greffes rénales en France",
+    subtitle = "France métropolitaine",
+    caption = "Source : données hospitalières"
+  ) +
+  theme_minimal()
+
+
+```
+
 gvvvvnvbnh
+
+```{r}
+ggplot(carte_regions) +
+  geom_sf(aes(fill = nb_greffes), color = "white", linewidth = 0.3) +
+  geom_sf_text(
+    aes(label = nb_greffes),
+    size = 3,
+    fontface = "bold",
+    color = "black"
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    name = "Nombre de greffes"
+  ) +
+  labs(
+    title = "Répartition régionale des greffes rénales en France",
+    subtitle = "Agrégation par région",
+    caption = "Source : données hospitalières"
+  ) +
+  theme_minimal()
+
+
+```
 
 # ANALYSE BIVARIEES
 
