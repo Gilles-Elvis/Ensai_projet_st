@@ -275,34 +275,28 @@ head(base)
 ```
 
 ```{r}
-convertir_dates <- function(data, variables_dates){
-  # Forcer locale anglaise pour reconnaître les mois abrégés
+convertir_dates <- function(data, variables_dates) {
+  
+  # Locale anglaise pour mois abrégés (Jan, Feb, etc.)
   Sys.setlocale("LC_TIME", "C")
   
-  for(var in variables_dates){
-    # Extraire la partie date avant les ":"
-    clean_var <- paste0(var, "_clean")
-    data[[clean_var]] <- sub(":.*", "", data[[var]])
+  for (var in variables_dates) {
     
-    # Conversion en Date
-    data[[paste0(var, "_date")]] <- as.Date(data[[clean_var]], format = "%d%b%Y")
+    # Nettoyage : garder uniquement la partie date
+    data[[var]] <- sub(":.*", "", data[[var]])
     
-    # Format jour-mois-année
-    data[[paste0(var, "_jma")]] <- ifelse(
-      is.na(data[[paste0(var, "_date")]]),
-      NA,
-      format(data[[paste0(var, "_date")]], "%d-%m-%Y")
-    )
-    
-    # Optionnel : supprimer la colonne intermédiaire
-    data[[clean_var]] <- NULL
+    # Conversion en Date (écrase la variable existante)
+    data[[var]] <- as.Date(data[[var]], format = "%d%b%Y")
   }
   
   return(data)
 }
 vars_dates <- c("date_greffe", "date_mort", "debut_sejour", "fin_sejour")
+
 base <- convertir_dates(base, vars_dates)
+
 head(base)
+
 
 ```
 
