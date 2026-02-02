@@ -79,11 +79,11 @@ est_manquant <- function(x) {
 Vu la structure des dates , nous l'avons ramener au format utilisable par Rw
 
 ```{r}
-Extraire la partie date (avant les ":")
-Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
-data$date_greffe_clean <- sub(":.*", "", data$date_greffe)
-data$debut_sejour_clean <- sub(":.*", "", data$debut_sejour)
-data$fin_sejour_clean <- sub(":.*", "", data$fin_sejour)
+#Extraire la partie date (avant les ":")
+#Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
+#data$date_greffe_clean <- sub(":.*", "", data$date_greffe)
+#data$debut_sejour_clean <- sub(":.*", "", data$debut_sejour)
+#data$fin_sejour_clean <- sub(":.*", "", data$fin_sejour)
 
 # Passer en locale anglaise pour reconnaître les mois (JUL, MAR, etc.)
 # pas besoin de ça si votre locale est en anglais déjà
@@ -418,7 +418,7 @@ ajouter_delais <- function(donnees, study_id = "study_id") {
   # =====================================================
 
   date_fictive <- as.Date("1600-01-01")
-  donnees$date_mort_date[donnees$date_mort_date == date_fictive] <- NA
+  donnees$date_mort[donnees$date_mort == date_fictive] <- NA
 
 
   # =====================================================
@@ -426,8 +426,8 @@ ajouter_delais <- function(donnees, study_id = "study_id") {
   # =====================================================
 
   donnees$delai_greffe_deces <- as.numeric(
-    difftime(donnees$date_mort_date,
-             donnees$date_greffe_date,
+    difftime(donnees$date_mort,
+             donnees$date_greffe,
              units = "days")
   )
 
@@ -452,7 +452,7 @@ ajouter_delais <- function(donnees, study_id = "study_id") {
     group_by(across(all_of(study_id))) %>%
     summarise(
       date_premiere_hospit_complication = {
-        tmp <- debut_sejour_date[!is.na(debut_sejour_date)]
+        tmp <- debut_sejour[!is.na(debut_sejour)]
         if (length(tmp) == 0) NA else min(tmp)
       },
       .groups = "drop"
@@ -473,7 +473,7 @@ ajouter_delais <- function(donnees, study_id = "study_id") {
   # =====================================================
 
   donnees$date_complication <- pmin(
-    donnees$date_mort_date,
+    donnees$date_mort,
     donnees$date_premiere_hospit_complication,
     na.rm = TRUE
   )
@@ -493,13 +493,13 @@ ajouter_delais <- function(donnees, study_id = "study_id") {
 
   # Cas suivi sans complication
   is.na(donnees$date_complication) &
-    (!is.na(donnees$fin_sejour_date) | !is.na(donnees$debut_sejour_date)) ~
-      pmax(donnees$fin_sejour_date,
-           donnees$debut_sejour_date,
+    (!is.na(donnees$fin_sejour) | !is.na(donnees$debut_sejour)) ~
+      pmax(donnees$fin_sejour,
+           donnees$debut_sejour,
            na.rm = TRUE),
 
   # Cas perdu de vue immédiatement après greffe
-  TRUE ~ donnees$date_greffe_date
+  TRUE ~ donnees$date_greffe
 )
 
 
@@ -509,30 +509,30 @@ ajouter_delais <- function(donnees, study_id = "study_id") {
 
   donnees$delai_greffe_complication <- as.numeric(
     difftime(donnees$date_fin_suivi,
-             donnees$date_greffe_date,
+             donnees$date_greffe,
              units = "days")
   )
 
   return(donnees)
 }
 
-base <- ajouter_delais(base, study_id = "study_id")
-head(base)
+data <- ajouter_delais(data, study_id = "study_id")
+head(data)
 
 ```
 
 ```{r}
 
 # Ces 9 patients sont morts avant la greffe
-base[which(base$delai_greffe_complication<0),] %>% select(date_greffe, date_mort, debut_sejour, fin_sejour, DGN_PAL_suivi, study_id)
+data[which(data$delai_greffe_complication<0),] %>% select(date_greffe, date_mort, debut_sejour, fin_sejour, DGN_PAL_suivi, study_id)
 ```
 
 La variable évènement correspond à 1 si complication survenue, 0 si patient censuré (pas de complication)
 
 ```{r}
 # Variable évènement
-base$event_complication <- ifelse(
-  !is.na(base$date_complication),
+data$event_complication <- ifelse(
+  !is.na(data$date_complication),
   1,
   0
 )
@@ -770,9 +770,9 @@ codes_complication <- c("T861", "Z491", "N10")
 #### CONSTRUCTION BASE PATIENT
 ############################################################
 
-base_patient <- base %>%
+data_patient <- data %>%
 
-  arrange(study_id, debut_sejour_date) %>%
+  arrange(study_id, debut_sejour) %>%
 
   mutate(
 
@@ -784,7 +784,7 @@ base_patient <- base %>%
 
     DGN_PAL_avant_complication = ifelse(
       !is.na(DGN_PAL_valide) &
-      (is.na(date_complication) | debut_sejour_date <= date_complication),
+      (is.na(date_complication) | debut_sejour <= date_complication),
       DGN_PAL_valide,
       NA
     )
@@ -839,25 +839,25 @@ base_patient <- base %>%
   ) %>%
 
   ungroup()
-base[which(is.na(base$fin_sejour_date)),]
+data[which(is.na(data$fin_sejour)),]
 ```
 
 ```{r}
 # vérifications
-summary(base_patient$delai_greffe_complication)
-sum(is.na(base_patient$delai_greffe_complication))
-sum(base_patient$delai_greffe_complication < 0)
+summary(data_patient$delai_greffe_complication)
+sum(is.na(data_patient$delai_greffe_complication))
+sum(data_patient$delai_greffe_complication < 0)
 
-table(base_patient$event_complication)
-base_patient[which(is.na(base_patient$delai_greffe_complication)),] # 1 pb, données textuelles plutôt que vraies informations, on supprime la ligne
-head(base_patient, 3)
-base[which(base$study_id == "patient_1"),] %>% select(, date_greffe,debut_sejour, fin_sejour, date_mort, DGN_PAL_suivi)
+table(data_patient$event_complication)
+data_patient[which(is.na(data_patient$delai_greffe_complication)),] # 1 pb, données textuelles plutôt que vraies informations, on supprime la ligne
+head(data_patient, 3)
+data[which(data_patient$study_id == "patient_1"),] %>% select(date_greffe,debut_sejour, fin_sejour, date_mort, DGN_PAL_suivi)
 ```
 
 ```{r}
 # base rds
-base_patient <- base_patient[!is.na(base_patient$delai_greffe_complication), ]
+data_patient <- data_patient[!is.na(data_patient$delai_greffe_complication), ]
 
-saveRDS(base_patient, "base_patient.rds")
+saveRDS(data_patient, "data_patient.rds")
 
 ```
