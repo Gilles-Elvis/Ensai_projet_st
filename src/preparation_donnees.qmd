@@ -300,6 +300,147 @@ head(data)
 
 ```
 
+Problème majeur n°1 : présence de lignes “en-tête” dans les données
+
+Ça veut dire que **l’en-tête a été lu comme une observation**\
+➡️ C’est **très grave analytiquement** (ça fausse :histogrammes, moyennes , comptages, cartes, modèles)
+
+```{r}
+# À exécuter une seule fois, tout au début du projet
+## 1. Suppression des lignes parasites (lignes = noms de variables)
+## Ces lignes apparaissent souvent lors d'import Excel / CSV
+data <- data[!apply(data, 1, function(x) any(x %in% names(data))), ]
+
+
+```
+
+Problème majeur n°2 : variables numériques stockées en `character`
+
+```{r}
+
+## NETTOYAGE DES FORMATS – SANS RECODAGE  
+
+
+
+##  Variables d’âge
+## Format attendu : numérique
+vars_age <- c(
+  "age_greffe",  # Âge au moment de la greffe
+  "age_suivi"    # Âge au moment du séjour de suivi
+)
+
+data[vars_age] <- lapply(data[vars_age], as.numeric)
+
+
+## 4. Variables binaires médicales (0 / 1)
+## Format attendu : facteur (sans interprétation)
+vars_binaires <- c(
+  "diabete",             # Antécédent de diabète
+  "diabete_insuline",    # Diabète traité par insuline
+  "HTA",                 # Antécédent d’hypertension
+  "AVC",                 # Antécédent d’AVC
+  "syndrome_coronaire",  # Antécédent d’infarctus
+  "groupe_extr"          # Indice technique d’extraction (non analysé)
+)
+
+data[vars_binaires] <- lapply(
+  data[vars_binaires],
+  factor,
+  levels = c("0", "1")
+)
+
+
+## 5. Sexe
+## Codage conservé tel quel : 1 = Homme, 2 = Femme
+## Les labels pourront être ajoutés ultérieurement
+data$COD_SEX <- factor(data$COD_SEX)
+
+
+## 6. Identifiants, codes administratifs et diagnostics
+## Format attendu : caractère (ne jamais convertir en numérique)
+vars_character <- c(
+  "diag_greffe",      # Diagnostic de greffe (critère d’inclusion)
+  "ETA_NUM_greffe",   # Identifiant établissement de greffe
+  "RSA_NUM_greffe",   # Identifiant séjour de greffe
+  "DEP_greffe",       # Département de résidence à la greffe
+  "etab_greffe",      # Nom établissement de greffe
+  "etab_geo_greffe",  # Localisation géographique établissement
+  "ETA_NUM_suivi",    # Identifiant établissement de suivi
+  "RSA_NUM_suivi",    # Identifiant séjour de suivi
+  "DGN_PAL_suivi",    # Diagnostic principal (CIM-10)
+  "DGN_REL_suivi",    # Diagnostic relié (CIM-10)
+  "DEP_suivi",        # Département de résidence au suivi
+  "etab_suivi",       # Nom établissement de suivi
+  "study_id",         # Identifiant patient
+  "mort"              # Statut de mortalité
+)
+
+data[vars_character] <- lapply(data[vars_character], as.character)
+
+
+```
+
+Recodage des variables
+
+```{r}
+# =========================================
+# RECODAGE DES VARIABLES (NOUVELLES COLONNES)
+# =========================================
+
+# 1) Sexe du patient
+# Dictionnaire : COD_SEX -> 1 = Homme, 2 = Femme
+data$COD_SEX_r <- factor(
+  data$COD_SEX,
+  levels = c("1", "2"),
+  labels = c("Homme", "Femme")
+)
+
+# 2) Mortalité
+# Dictionnaire : mort -> Oui / Non
+data$mort_r <- factor(
+  data$mort,
+  levels = c("Non", "Oui"),
+  labels = c("Vivant", "Décédé")
+)
+
+# 3) Antécédent de diabète
+# Dictionnaire : diabete -> 0 = Non, 1 = Oui
+data$diabete_r <- factor(
+  data$diabete,
+  levels = c("0", "1"),
+  labels = c("Non", "Oui")
+)
+
+# 4) Diabète traité par insuline
+data$diabete_insuline_r <- factor(
+  data$diabete_insuline,
+  levels = c("0", "1"),
+  labels = c("Non", "Oui")
+)
+
+# 5) Antécédent d'hypertension artérielle
+data$HTA_r <- factor(
+  data$HTA,
+  levels = c("0", "1"),
+  labels = c("Non", "Oui")
+)
+
+# 6) Antécédent d'AVC
+data$AVC_r <- factor(
+  data$AVC,
+  levels = c("0", "1"),
+  labels = c("Non", "Oui")
+)
+
+# 7) Antécédent coronarien (infarctus)
+data$syndrome_coronaire_r <- factor(
+  data$syndrome_coronaire,
+  levels = c("0", "1"),
+  labels = c("Non", "Oui")
+)
+
+```
+
 Une complication est considérée comme l'un des évènements suivant : Nous définissons la complication (pour le moment) comme la survenue des évènements suivants : premier évènement entre décès et une hospitalisation pour l'un des motifs - rejet de greffe, néphrite tubulo-interstitielle aiguë, dyalise (séance d'apharèse sanguine ?),
 
 ```{r}
