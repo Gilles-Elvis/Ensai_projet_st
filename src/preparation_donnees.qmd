@@ -270,8 +270,8 @@ charger_exports <- function(chemin = ".", nb_fichiers = 5){
   return(base_finale)
 }
 
-base <- charger_exports()
-head(base)
+data <- charger_exports()
+head(data)
 ```
 
 ```{r}
@@ -293,9 +293,9 @@ convertir_dates <- function(data, variables_dates) {
 }
 vars_dates <- c("date_greffe", "date_mort", "debut_sejour", "fin_sejour")
 
-base <- convertir_dates(base, vars_dates)
+data <- convertir_dates(data, vars_dates)
 
-head(base)
+head(data)
 
 
 ```
