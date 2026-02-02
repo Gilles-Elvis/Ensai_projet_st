@@ -4,6 +4,14 @@ format: html
 editor: visual
 ---
 
+# Problèmes base
+
+décès en 1600 =\> pas de décès =\> recodé en NA
+
+patient_12250 + 8 autres =\> mort avant sa date de greffe : quel traitement faire entre les mettre de côté ou transformer l'année de leur décès en année de la greffe ?
+
+il y a des patients qui ne sont pas morts et qui n'ont pas de suivi après la greffe (perte de trace juste après la greffe =\> censure immédiate) =\> documenter les risques liés à cela
+
 # PRELIMINAIRES
 
 ## Chargement des packages
@@ -22,8 +30,8 @@ library(lubridate)
 ## Importation des données
 
 ```{r}
-data = read.csv("donnees.csv", header = TRUE, sep = ";")
-View(data)
+# data = read.csv("donnees.csv", header = TRUE, sep = ";")
+
 ```
 
 ## Vérifier l'importation
@@ -36,33 +44,33 @@ cat("Nombre de colonnes :", ncol(data), "\n")
 ## Structure des données
 
 ```{r}
-str(data)
+# str(data)
 ```
 
 ```{r}
-summary(data)
+# summary(data)
 ```
 
 ## Variables manquantes
 
 ```{r}
 est_manquant <- function(x) {
-  is.na(x) | (is.character(x) & trimws(x) == "")
-}
+   is.na(x) | (is.character(x) & trimws(x) == "")
+ }
 
 # Calcul du taux de valeurs manquantes par variable
-taux_manquant <- sapply(data, function(col) {
-  sum(est_manquant(col)) / length(col) * 100
-})
+ taux_manquant <- sapply(data, function(col) {
+   sum(est_manquant(col)) / length(col) * 100
+ })
 
 # Dataframe récapitulatif
-missing_df <- data.frame(
-  variable = names(taux_manquant),
-  taux_manquant = taux_manquant
-)
+ missing_df <- data.frame(
+   variable = names(taux_manquant),
+   taux_manquant = taux_manquant
+ )
 
 # Tri décroissant par taux de valeurs manquantes
-missing_df <- missing_df[order(-missing_df$taux_manquant), ]
+ missing_df <- missing_df[order(-missing_df$taux_manquant), ]
 
 ```
 
@@ -71,8 +79,8 @@ missing_df <- missing_df[order(-missing_df$taux_manquant), ]
 Vu la structure des dates , nous l'avons ramener au format utilisable par Rw
 
 ```{r}
-# Extraire la partie date (avant les ":")
-# Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
+Extraire la partie date (avant les ":")
+Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
 data$date_greffe_clean <- sub(":.*", "", data$date_greffe)
 data$debut_sejour_clean <- sub(":.*", "", data$debut_sejour)
 data$fin_sejour_clean <- sub(":.*", "", data$fin_sejour)
@@ -91,25 +99,23 @@ data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
 
 ```{r}
 data <- data %>%
-  mutate(periode_greffe = if_else(debut_sejour < date_greffe, 
-                                  "Pre_greffe", 
-                                  "Post_greffe"))
+mutate(periode_greffe = if_else(debut_sejour < date_greffe,
+"Pre_greffe",
+"Post_greffe"))
 table(data$periode_greffe)
 
 ### Tri de la base par date de greffe
 ```
 
-
 ```{r}
 data <- data %>%arrange(date_greffe)
-View(data)
 ```
 
 ## Création de la variable tranche d'âge
 
 ```{r}
 data <- data %>%
-  mutate(tranche_age = cut(AGE_ANN, 
+  mutate(tranche_age = cut(AGE_ANN,
                            breaks = c(0, 30, 40, 50, 60, 70, 80, 120),
 labels = c("<30", "30-39", "40-49", "50-59", "60-69", "70-79", "≥80")
 ))
@@ -221,5 +227,643 @@ if (sum(is.na(verif_jointure$nom_dept)) > 0) {
 Code pour la création de la base
 
 ```{r}
-saveRDS(data, "data.rds")
+# saveRDS(data, "data.rds")
+
+```
+
+```{r}
+
+```
+
+## Extraction 2 : Exploration
+
+```{r}
+# Chargement des données
+
+charger_exports <- function(chemin = ".", nb_fichiers = 5){
+  
+  liste_data <- list()
+  
+  for(i in 0:(nb_fichiers-1)){
+    
+    nom_fichier <- file.path(chemin, paste0("export", i, ".csv"))
+    
+    data_i <- read.table(nom_fichier,
+                         header = TRUE,
+                         sep = ";",
+                         quote = "\n",
+                         stringsAsFactors = FALSE)
+    
+    liste_data[[i + 1]] <- data_i
+  }
+  
+  # Vérification des colonnes
+  noms_colonnes <- lapply(liste_data, names)
+  
+  if(!all(sapply(noms_colonnes, identical, noms_colonnes[[1]]))){
+    stop("Les colonnes des fichiers ne sont pas identiques")
+  }
+  
+  # Fusion des bases
+  base_finale <- do.call(rbind, liste_data)
+  
+  return(base_finale)
+}
+
+base <- charger_exports()
+head(base)
+```
+
+```{r}
+convertir_dates <- function(data, variables_dates){
+  # Forcer locale anglaise pour reconnaître les mois abrégés
+  Sys.setlocale("LC_TIME", "C")
+  
+  for(var in variables_dates){
+    # Extraire la partie date avant les ":"
+    clean_var <- paste0(var, "_clean")
+    data[[clean_var]] <- sub(":.*", "", data[[var]])
+    
+    # Conversion en Date
+    data[[paste0(var, "_date")]] <- as.Date(data[[clean_var]], format = "%d%b%Y")
+    
+    # Format jour-mois-année
+    data[[paste0(var, "_jma")]] <- ifelse(
+      is.na(data[[paste0(var, "_date")]]),
+      NA,
+      format(data[[paste0(var, "_date")]], "%d-%m-%Y")
+    )
+    
+    # Optionnel : supprimer la colonne intermédiaire
+    data[[clean_var]] <- NULL
+  }
+  
+  return(data)
+}
+vars_dates <- c("date_greffe", "date_mort", "debut_sejour", "fin_sejour")
+base <- convertir_dates(base, vars_dates)
+head(base)
+
+```
+
+Une complication est considérée comme l'un des évènements suivant : Nous définissons la complication (pour le moment) comme la survenue des évènements suivants : premier évènement entre décès et une hospitalisation pour l'un des motifs - rejet de greffe, néphrite tubulo-interstitielle aiguë, dyalise (séance d'apharèse sanguine ?),
+
+```{r}
+# ajouter_delais <- function(donnees, study_id = "study_id"){
+# 
+#   
+#   codes_complication <- c("T861", "Z491", "N10")
+#   
+#   # =====================================================
+#   # 1. Nettoyage des dates fictives (patients vivants)
+#   # =====================================================
+#   
+#   date_fictive <- as.Date("1600-01-01")
+#   
+#   donnees$date_mort_date[donnees$date_mort_date == date_fictive] <- NA
+#   
+#   
+#   # =====================================================
+#   # 2. Délai greffe -> décès
+#   # =====================================================
+#   
+#   donnees$delai_greffe_deces <- as.numeric(
+#     difftime(donnees$date_mort_date,
+#              donnees$date_greffe_date,
+#              units = "days")
+#   )
+#   
+#   
+#   # =====================================================
+#   # 3. Identifier hospitalisations complication
+#   # =====================================================
+#   
+#   donnees$hospit_complication <- ifelse(
+#     donnees$DGN_PAL %in% codes_complication,
+#     1,
+#     0
+#   )
+#   
+#   
+#   # =====================================================
+#   # 4. Trouver 1ère hospitalisation complication patient
+#   # =====================================================
+#   
+#   dates_hospit_comp <- donnees %>%
+#     filter(hospit_complication == 1) %>%
+#     group_by(across(all_of(study_id))) %>%
+#     summarise(
+#       date_premiere_hospit_complication = {
+#         tmp <- debut_sejour_date[!is.na(debut_sejour_date)]
+#         if(length(tmp) == 0) NA else min(tmp)
+#       },
+#       .groups = "drop"
+#     )
+#   
+#   
+#   # =====================================================
+#   # 5. Ajouter cette date dans la base complète
+#   # =====================================================
+#   
+#   donnees <- donnees %>%
+#     left_join(dates_hospit_comp, by = study_id)
+#   
+#   
+#   # =====================================================
+#   # 6. Délai greffe -> hospitalisation complication
+#   # =====================================================
+#   
+#   donnees$delai_greffe_hospit_complication <- as.numeric(
+#     difftime(donnees$date_premiere_hospit_complication,
+#              donnees$date_greffe_date,
+#              units = "days")
+#   )
+#   
+#   
+#   # =====================================================
+#   # 7. Date complication = premier évènement
+#   # =====================================================
+#   
+#   donnees$date_complication <- pmin(
+#     donnees$date_mort_date,
+#     donnees$date_premiere_hospit_complication,
+#     na.rm = TRUE
+#   )
+#   
+#   # Corriger cas où les deux dates sont NA
+#   donnees$date_complication[
+#     is.infinite(donnees$date_complication)
+#   ] <- NA
+#   
+#   
+#   # =====================================================
+#   # 8. Délai greffe -> complication
+#   # =====================================================
+#   
+#   donnees$delai_greffe_complication <- as.numeric(
+#     difftime(donnees$date_complication,
+#              donnees$date_greffe_date,
+#              units = "days")
+#   )
+#   
+#   return(donnees)
+# }
+# 
+# base <- ajouter_delais(base, study_id = "study_id")
+# head(base,n = 30)
+# 
+# head(base,1)
+
+ajouter_delais <- function(donnees, study_id = "study_id") {
+
+
+  codes_complication <- c("T861", "Z491", "N10")
+
+  # =====================================================
+  # 1. Nettoyage des dates fictives de décès
+  # =====================================================
+
+  date_fictive <- as.Date("1600-01-01")
+  donnees$date_mort_date[donnees$date_mort_date == date_fictive] <- NA
+
+
+  # =====================================================
+  # 2. Délai greffe -> décès (informatif uniquement)
+  # =====================================================
+
+  donnees$delai_greffe_deces <- as.numeric(
+    difftime(donnees$date_mort_date,
+             donnees$date_greffe_date,
+             units = "days")
+  )
+
+
+  # =====================================================
+  # 3. Identifier hospitalisations de complication
+  # =====================================================
+
+  donnees$hospit_complication <- ifelse(
+    donnees$DGN_PAL %in% codes_complication,
+    1,
+    0
+  )
+
+
+  # =====================================================
+  # 4. Date de la 1ère hospitalisation pour complication
+  # =====================================================
+
+  dates_hospit_comp <- donnees %>%
+    filter(hospit_complication == 1) %>%
+    group_by(across(all_of(study_id))) %>%
+    summarise(
+      date_premiere_hospit_complication = {
+        tmp <- debut_sejour_date[!is.na(debut_sejour_date)]
+        if (length(tmp) == 0) NA else min(tmp)
+      },
+      .groups = "drop"
+    )
+
+
+  # =====================================================
+  # 5. Ajout de la date de 1ère complication
+  # =====================================================
+
+  donnees <- donnees %>%
+    left_join(dates_hospit_comp, by = study_id)
+
+
+  # =====================================================
+  # 6. Date de complication = premier événement
+  #    (décès ou hospitalisation complication)
+  # =====================================================
+
+  donnees$date_complication <- pmin(
+    donnees$date_mort_date,
+    donnees$date_premiere_hospit_complication,
+    na.rm = TRUE
+  )
+
+  donnees$date_complication[
+    is.infinite(donnees$date_complication)
+  ] <- NA
+
+
+  # =====================================================
+  # 7. Date de fin de suivi (TOUJOURS définie)
+  # =====================================================
+# il y a des patients qui ne sont pas morts et qui n'ont pas de suivi après la greffe (perte de trace juste après la greffe => censure immédiate)
+ donnees$date_fin_suivi <- case_when(
+  # Cas standard : complication observée
+  !is.na(donnees$date_complication) ~ donnees$date_complication,
+
+  # Cas suivi sans complication
+  is.na(donnees$date_complication) &
+    (!is.na(donnees$fin_sejour_date) | !is.na(donnees$debut_sejour_date)) ~
+      pmax(donnees$fin_sejour_date,
+           donnees$debut_sejour_date,
+           na.rm = TRUE),
+
+  # Cas perdu de vue immédiatement après greffe
+  TRUE ~ donnees$date_greffe_date
+)
+
+
+  # =====================================================
+  # 8. Délai greffe -> fin de suivi (temps observé)
+  # =====================================================
+
+  donnees$delai_greffe_complication <- as.numeric(
+    difftime(donnees$date_fin_suivi,
+             donnees$date_greffe_date,
+             units = "days")
+  )
+
+  return(donnees)
+}
+
+base <- ajouter_delais(base, study_id = "study_id")
+head(base)
+
+```
+
+```{r}
+
+# Ces 9 patients sont morts avant la greffe
+base[which(base$delai_greffe_complication<0),] %>% select(date_greffe, date_mort, debut_sejour, fin_sejour, DGN_PAL_suivi, study_id)
+```
+
+La variable évènement correspond à 1 si complication survenue, 0 si patient censuré (pas de complication)
+
+```{r}
+# Variable évènement
+base$event_complication <- ifelse(
+  !is.na(base$date_complication),
+  1,
+  0
+)
+
+```
+
+### Base patients pour la modélisation
+
+```{r}
+
+# codes_complication <- c("T861", "Z491", "N10")
+# 
+# base_patient <- base %>%
+#   
+#   mutate(
+#     DGN_PAL_valide = ifelse(
+#       DGN_PAL_suivi %in% codes_complication,
+#       NA,
+#       DGN_PAL_suivi
+#     ),
+#     
+#     DGN_PAL_avant_complication = ifelse(
+#       !is.na(DGN_PAL_valide) &
+#       (is.na(date_complication) | debut_sejour_date <= date_complication),
+#       DGN_PAL_valide,
+#       NA
+#     )
+#   ) %>%
+#   
+#   group_by(study_id) %>%
+#   
+#   summarise(
+#     
+#     ### VARIABLES SURVIE
+#     delai_greffe_complication = first(delai_greffe_complication),
+#     event_complication = first(event_complication),
+#     date_complication = first(date_complication),
+#     
+#     ### VARIABLES EXPLICATIVES PATIENT
+#     age_greffe = first(age_greffe),
+#     date_greffe = first(date_greffe),
+#     COD_SEX = first(COD_SEX),
+#     DEP_greffe = first(DEP_greffe),
+#     diabete = first(diabete),
+#     diabete_insuline = first(diabete_insuline),
+#     HTA = first(HTA),
+#     AVC = first(AVC),
+#     syndrome_coronaire = first(syndrome_coronaire),
+#     etab_greffe = first(etab_greffe),
+#     etab_suivi = first(etab_suivi),
+#     
+#     ### Historique diagnostic avant complication
+#     DGN_PAL_avant_complication = list(
+#       unique(na.omit(DGN_PAL_avant_complication))
+#     )
+#     
+#   ) %>%
+#   
+#   ungroup()
+# 
+# # Vérifications ok
+# n_distinct(base$study_id)
+# nrow(base_patient)
+# base_patient$DGN_PAL_avant_complication[1:5]
+```
+
+```{r}
+############################################################
+#### CREATION BASE PATIENT SANS VALEURS Inf
+############################################################
+
+
+############################################################
+#### FONCTIONS SECURISEES POUR EVITER Inf ET -Inf
+############################################################
+# 
+# # Si toutes les valeurs sont NA → retourne NA
+# # Sinon → calcule le minimum
+# 
+# safe_min <- function(x){
+#   if(all(is.na(x))) NA else min(x, na.rm = TRUE)
+# }
+# 
+# # Si toutes les valeurs sont NA → retourne NA
+# # Sinon → calcule le maximum
+# 
+# safe_max <- function(x){
+#   if(all(is.na(x))) NA else max(x, na.rm = TRUE)
+# }
+# 
+# 
+# ############################################################
+# #### DEFINITION DES CODES DEFINISSANT LA COMPLICATION
+# ############################################################
+# 
+# codes_complication <- c("T861", "Z491", "N10")
+# 
+# 
+# ############################################################
+# #### CONSTRUCTION BASE PATIENT
+# ############################################################
+# 
+# base_patient <- base %>%
+#   
+#   
+#   ###########################################################
+#   # TRI CHRONOLOGIQUE DES SEJOURS
+#   ###########################################################
+#   
+#   arrange(study_id, debut_sejour_date) %>%
+#   
+#   
+#   ###########################################################
+#   # PREPARATION DES DIAGNOSTICS UTILISABLES
+#   ###########################################################
+#   
+#   mutate(
+#     
+#     # On supprime les diagnostics correspondant à la complication
+#     DGN_PAL_valide = ifelse(
+#       DGN_PAL_suivi %in% codes_complication,
+#       NA,
+#       DGN_PAL_suivi
+#     ),
+#     
+#     
+#     # On conserve uniquement les diagnostics survenus
+#     # après la greffe et avant la complication
+#     DGN_PAL_avant_complication = ifelse(
+#       !is.na(DGN_PAL_valide) &
+#       (is.na(date_complication) | debut_sejour_date <= date_complication),
+#       DGN_PAL_valide,
+#       NA
+#     )
+#     
+#   ) %>%
+#   
+#   
+#   ###########################################################
+#   # PASSAGE AU NIVEAU PATIENT
+#   ###########################################################
+#   
+#   group_by(study_id) %>%
+#   
+#   summarise(
+#     
+#     
+#     #######################################################
+#     #### VARIABLES DE SURVIE
+#     #######################################################
+#     
+#     delai_greffe_complication =
+#       safe_min(delai_greffe_complication),
+#     
+#     event_complication =
+#       safe_max(event_complication),
+#     
+#     date_complication =
+#       safe_min(date_complication),
+#     
+#     
+#     
+#     #######################################################
+#     #### VARIABLES EXPLICATIVES INITIALES
+#     #######################################################
+#     
+#     age_greffe = first(age_greffe),
+#     date_greffe = first(date_greffe),
+#     COD_SEX = first(COD_SEX),
+#     DEP_greffe = first(DEP_greffe),
+#     
+#     diabete = first(diabete),
+#     diabete_insuline = first(diabete_insuline),
+#     HTA = first(HTA),
+#     AVC = first(AVC),
+#     syndrome_coronaire = first(syndrome_coronaire),
+#     
+#     etab_greffe = first(etab_greffe),
+#     etab_suivi = first(etab_suivi),
+#     
+#     
+#     
+#     #######################################################
+#     #### HISTORIQUE DIAGNOSTICS AVANT COMPLICATION
+#     #######################################################
+#     
+#     DGN_PAL_avant_complication = list(
+#       unique(na.omit(DGN_PAL_avant_complication))
+#     )
+#     
+#   ) %>%
+#   
+#   ungroup()
+# 
+# 
+# 
+# ############################################################
+# #### VERIFICATIONS QUALITE BASE PATIENT
+# ############################################################
+# 
+# # Vérifie correspondance nombre patients
+# n_distinct(base$study_id)
+# nrow(base_patient)
+# 
+# # Vérifie absence Inf
+# any(is.infinite(base_patient$delai_greffe_complication))
+# 
+# # Aperçu diagnostics patients
+# base_patient$DGN_PAL_avant_complication[1:5]
+
+```
+
+```{r}
+############################################################
+#### FONCTIONS SECURISEES
+############################################################
+
+safe_min <- function(x){
+  if (all(is.na(x))) NA else min(x, na.rm = TRUE)
+}
+
+safe_max <- function(x){
+  if (all(is.na(x))) NA else max(x, na.rm = TRUE)
+}
+
+
+############################################################
+#### CODES COMPLICATION
+############################################################
+
+codes_complication <- c("T861", "Z491", "N10")
+
+
+############################################################
+#### CONSTRUCTION BASE PATIENT
+############################################################
+
+base_patient <- base %>%
+
+  arrange(study_id, debut_sejour_date) %>%
+
+  mutate(
+
+    DGN_PAL_valide = ifelse(
+      DGN_PAL_suivi %in% codes_complication,
+      NA,
+      DGN_PAL_suivi
+    ),
+
+    DGN_PAL_avant_complication = ifelse(
+      !is.na(DGN_PAL_valide) &
+      (is.na(date_complication) | debut_sejour_date <= date_complication),
+      DGN_PAL_valide,
+      NA
+    )
+
+  ) %>%
+
+  group_by(study_id) %>%
+
+  summarise(
+
+    #######################################################
+    #### VARIABLES DE SURVIE
+    #######################################################
+
+    delai_greffe_complication =
+      safe_min(delai_greffe_complication),
+
+    event_complication =
+      safe_max(event_complication),
+
+    date_complication =
+      safe_min(date_complication),
+
+
+    #######################################################
+    #### VARIABLES EXPLICATIVES
+    #######################################################
+
+    age_greffe = first(age_greffe),
+    date_greffe = first(date_greffe),
+    COD_SEX = first(COD_SEX),
+    DEP_greffe = first(DEP_greffe),
+
+    diabete = first(diabete),
+    diabete_insuline = first(diabete_insuline),
+    HTA = first(HTA),
+    AVC = first(AVC),
+    syndrome_coronaire = first(syndrome_coronaire),
+
+    etab_greffe = first(etab_greffe),
+    etab_suivi = first(etab_suivi),
+
+
+    #######################################################
+    #### HISTORIQUE DIAGNOSTICS AVANT COMPLICATION
+    #######################################################
+
+    DGN_PAL_avant_complication = list(
+      unique(na.omit(DGN_PAL_avant_complication))
+    )
+
+  ) %>%
+
+  ungroup()
+base[which(is.na(base$fin_sejour_date)),]
+```
+
+```{r}
+# vérifications
+summary(base_patient$delai_greffe_complication)
+sum(is.na(base_patient$delai_greffe_complication))
+sum(base_patient$delai_greffe_complication < 0)
+
+table(base_patient$event_complication)
+base_patient[which(is.na(base_patient$delai_greffe_complication)),] # 1 pb, données textuelles plutôt que vraies informations, on supprime la ligne
+head(base_patient, 3)
+base[which(base$study_id == "patient_1"),] %>% select(, date_greffe,debut_sejour, fin_sejour, date_mort, DGN_PAL_suivi)
+```
+
+```{r}
+# base rds
+base_patient <- base_patient[!is.na(base_patient$delai_greffe_complication), ]
+
+saveRDS(base_patient, "base_patient.rds")
+
 ```
