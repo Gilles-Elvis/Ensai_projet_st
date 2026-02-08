@@ -1,0 +1,497 @@
+---
+title: "parcours_atypique"
+format: html
+editor: visual
+---
+
+```{r}
+library(survival)
+library(dplyr)
+library(survminer) # courbe de km
+library(ggsurvfit)
+library(tidycmprsk)            # pour cuminc()
+library(ggplot2)
+```
+
+```{r import des données}
+data <- readRDS("donnees.rds")
+```
+
+Z491 : dialyse
+
+T861 :rejet de greffe
+
+Z940 : greffe de rein
+
+**N10 : Néphrite tubulo-interstitielle aiguë**
+
+| Événement                            | Dates              |
+|--------------------------------------|--------------------|
+| Greffe initiale                      | 05 mars            |
+| Dialyse                              | 28 mars – 29 avril |
+| Rejet de greffe                      | 07 – 08 avril      |
+| Greffe de rein (2ieme ?)             | 19 – 21 avril      |
+| Redyalise                            | 02 – 30 mai        |
+| Rejet de greffe                      | 31 mai – 03 juin   |
+| Dialyse                              | 06 – 29 juin       |
+| Dialyse                              | 07 – 14 juin       |
+| Néphrite tubulo-interstitielle aiguë | 01 – 29 juillet    |
+
+```{r}
+
+
+# Sélection du parcours interessant 
+View(data)
+
+patient_atypique <- data[which(data$study_id == "patient_549"), ]
+head(patient_atypique,AGE_ANN)
+
+patient_atypique %>%
+  select(date_greffe, debut_sejour, fin_sejour,DGN_PAL, starts_with("ETA"), starts_with("RSA")) %>% arrange(debut_sejour)
+
+```
+
+### Analyse durée de séjours anormalement longues
+
+```{r}
+sejours_par_patient <- data %>%
+  group_by(study_id) %>%
+  summarise(nb_sejours = n()) %>%
+  ungroup()
+
+cat("\nNombre de séjours par patient :\n")
+print(summary(sejours_par_patient$nb_sejours))
+```
+
+```{r}
+duree_atypique <- sejours_par_patient[which(sejours_par_patient$nb_sejours>20),] %>% summarise()
+```
+
+## Quels facteurs influencent le délai avant une complication post-greffe ?
+
+Nous nous interessons à l'analyse des caractéristiques d'une personne, mais aussi au contexte clinique qui pourraient être reliés au fait que la personne se retrouve face à une complication après avoir reçu une greffe du rein.
+
+Nous définissons la complication (pour le moment) comme la survenue des évènements suivants : le premier évènement à survenir entre décès ou l'un des évènements suivants - rejet de greffe, néphrite tubulo-interstitielle aiguë, dyalise (séance d'apharèse sanguine ?),
+
+La variable dépendante sera donc le temps avant survenue de la première complication
+
+Question : qu'est ce qu'on doit réellement considérer comme complication ? ou il est plus interessant pour nous de regarder le temps avant la première dyalise après la greffe de rein ? Ou sinon est ce que je dois considérer en priorité certaines complications par rapport à d'autres si plusieurs complications sont survenues ?
+
+La mort doit vraiment être considérée comme une complication ou un competing risk ? i.e ....
+
+Comment regrouper certains diagnostiques en catégorie médical pour en avoir moins de colonnes ? =\> pour le moment ils sont exclus du modèle
+
+variables qui pourraient être interessantes : fonction du greffon/rejet initial, traitement immuno-suppresseur, données sur le donneur,
+
+Garder uniquement les patients dont c'est la première greffe, pas de regreffe
+
+```{r}
+# Chargement des données 
+data_patient <- readRDS("data_patient.rds")
+# head(data_patient, 10)
+```
+
+```{r}
+# typage des variables
+data_patient$COD_SEX <- factor(data_patient$COD_SEX)
+data_patient$diabete <- factor(data_patient$diabete)
+data_patient$diabete_insuline <- factor(data_patient$diabete_insuline)
+data_patient$HTA <- factor(data_patient$HTA)
+data_patient$AVC <- factor(data_patient$AVC)
+data_patient$syndrome_coronaire <- factor(data_patient$syndrome_coronaire)
+
+data_patient$etab_greffe <- factor(data_patient$etab_greffe)
+data_patient$etab_suivi  <- factor(data_patient$etab_suivi)
+
+data_patient$DEP_greffe <- factor(data_patient$DEP_greffe)
+```
+
+#### Analyse descriptive
+
+```{r}
+# pas de délai avant complication à NA
+data_patient[which(is.na(data_patient$delai_greffe_complication)),]
+data_patient[which(is.na(data_patient$event_complication)),]
+data_patient[which(data_patient$delai_greffe_complication <0),]  # pb à ce niveau
+```
+
+```{r}
+# Nettoyage
+data_patient <- data_patient %>%
+  filter(
+    !is.na(delai_greffe_complication),
+    !is.na(event_complication),
+    delai_greffe_complication >= 0
+  )
+# Création de l'objet de survie
+# + indique les données censurées (pas d’événement observé).
+# surv_obj <- with(
+#   data_patient,
+#   Surv(time = delai_greffe_complication, event = event_complication)
+# )
+
+
+surv_obj <- with(
+  data_patient,
+  Surv(time = delai_greffe_complication, event = (event_type == 1))
+)
+```
+
+50 % des patients sont suivis au moins 92 jours. 30,2% des patients ont présenté une complication pendant le suivi, 11,11% sont décédés, 58,7% de censure
+
+```{r}
+# # Durée médiane de suivi 
+# km_followup <- survfit(
+#   Surv(delai_greffe_complication, 1 - event_complication) ~ 1,
+#   data = data_patient
+# )
+# 
+# median_followup <- summary(km_followup)$table["median"]
+# 
+# median_followup
+# 
+# # Proportion de patients avec complications
+# prop_complication <- mean(data_patient$event_complication == 1)
+# 
+# prop_complication
+# 
+# # Taux de censure 
+# taux_censure <- mean(data_patient$event_complication == 0)
+# 
+# # Tableau récapitulatif
+# descriptif_survie <- data.frame(
+#   N_patients = nrow(data_patient),
+#   Duree_mediane_suivi_jours = median_followup,
+#   Proportion_complication = round(prop_complication, 3),
+#   Taux_censure = round(taux_censure, 3)
+# )
+# 
+# descriptif_survie
+
+
+km_followup <- survfit(
+  Surv(delai_greffe_complication, event_type == 0) ~ 1,
+  data = data_patient
+)
+
+median_followup <- summary(km_followup)$table["median"]
+median_followup
+
+prop_complication <- mean(data_patient$event_type == 1)
+prop_deces <- mean(data_patient$event_type == 2)
+taux_censure <- mean(data_patient$event_type == 0)
+
+descriptif_survie <- data.frame(
+  N_patients = nrow(data_patient),
+  Duree_mediane_suivi_jours = median_followup,
+  Prop_complication = round(prop_complication, 3),
+  Prop_deces = round(prop_deces, 3),
+  Taux_censure = round(taux_censure, 3)
+)
+
+descriptif_survie
+
+```
+
+#### Graphique CIF
+
+Cette courbe est une fonction d'incidence cumulée (CIF) des complications greffon après transplantation.
+
+Elle estime la proba cumulative de présenter une complication du greffon au cours du temps, en tenant compte du décès comme risque compétitif. Autrement dit, un patient décédé ne peut plus faire de complication, la CIF corrige ce biais.
+
+On observe :
+
+-   une augmentation rapide de l'incidence cumulée au cours des deux premières années =\> forte concentration de complications précoces post-greffe
+
+-   ensuite une progression plus lente =\> le risque persiste mais devient moins marqué.
+
+-   la courbe tend vers un plateau autour de 70% =\> si on suivait tous les patients jusqu’à la fin de la période observée, environ 70% auraient présenté une complication, au delà, on a pas trop de complication
+
+```{r}
+
+# event_type: 0=censuré, 1=complication, 2=décès
+data_patient$status_cr <- factor(
+  data_patient$event_type,
+  levels = c(0, 1, 2),
+  labels = c("cens", "complication", "deces")
+)
+
+# Valeurs
+cif2 <- cuminc(
+  Surv(delai_greffe_complication, status_cr) ~ 1,
+  data = data_patient
+)
+
+# Graphique
+ggsurvfit::ggcuminc(cif2) +
+   scale_x_continuous(
+    breaks = c(0, 365, 730, 1095, 1460, 1825),
+    labels = c("0", "1 an", "2 ans", "3 ans", "4 ans", "5 ans")
+  ) +
+  ggsurvfit::add_confidence_interval() +
+  labs(
+    x = "Temps après greffe",
+    y = "Probabilité cumulée de complication"
+  )
+
+
+```
+
+```{r}
+
+# Patient 8251 greffé en 2018, mort en 2025
+# data_patient$study_id[
+#   which(data_patient$delai_greffe_complication == 2829)
+# ]
+# 
+# data[
+#   which(data$study_id == "patient_8251"),
+# ]
+
+```
+
+### Cif par groupe
+
+```{r}
+
+```
+
+### Valeurs manquantes
+
+Exactement même nombre de valeurs manquantes pour les variables diabete, diabete_insuline, AVC, syndrome_coronaire (551) =\> recodage en inconnu empêche le fonctionnement du modèle car les individus qui ont diabete_NA et AVC_NA ont exactement les mêmes profils. Solution choisie : les merger avec les modalités "non".
+
+Quel traitement spécifique recommandé ?
+
+```{r}
+# Variable HTA non utilisable car a une seule modalité # NA sur les variables diabete, diabete_insuline, AVC, syndrome_coronaire (toujours le même nombre de NA 551) 
+
+summary(data_patient$diabete) summary(data_patient$diabete_insuline) summary(data_patient$AVC) summary(data_patient$syndrome_coronaire)  
+
+# Recodage
+data_patient$diabete <- factor(   data_patient$diabete,   levels = c(0, 1),   labels = c("Non", "Oui") ) 
+data_patient$diabete <- addNA(data_patient$diabete) 
+levels(data_patient$diabete)[3] <- "Inconnu"  
+
+data_patient$diabete_insuline <- factor(   data_patient$diabete_insuline,   levels = c(0, 1),   labels = c("Non", "Oui") )
+data_patient$diabete_insuline <- addNA(data_patient$diabete_insuline)
+levels(data_patient$diabete_insuline)[3] <- "Inconnu"  
+
+data_patient$AVC <- factor(   data_patient$AVC,   levels = c(0, 1),   labels = c("Non", "Oui") )
+data_patient$AVC <- addNA(data_patient$AVC) 
+levels(data_patient$AVC)[3] <- "Inconnu"   
+
+data_patient$syndrome_coronaire <- factor(   data_patient$syndrome_coronaire,   levels = c(0, 1),   labels = c("Non", "Oui") ) 
+data_patient$syndrome_coronaire <- addNA(data_patient$syndrome_coronaire) 
+levels(data_patient$syndrome_coronaire)[3] <- "Inconnu"  
+
+# Merge avec la modalité non  
+data_patient$diabete[data_patient$diabete == "Inconnu"] <- "Non" data_patient$diabete <- droplevels(data_patient$diabete)
+
+data_patient$AVC[data_patient$AVC == "Inconnu"] <- "Non" 
+data_patient$AVC <- droplevels(data_patient$AVC) 
+
+data_patient$syndrome_coronaire[   data_patient$syndrome_coronaire == "Inconnu" ] <- "Non"  
+data_patient$syndrome_coronaire <- droplevels(   data_patient$syndrome_coronaire )
+
+data_patient$diabete_insuline[   data_patient$diabete_insuline == "Inconnu" ] <- "Non"  
+data_patient$diabete_insuline <- droplevels(   data_patient$diabete_insuline ) 
+```
+
+#### Modèle
+
+Le modèle Fine and Gray est une extension du modèle de Cox pour les risques compétitifs.
+
+Dans notre projet : événement d’intérêt = complication du greffon, événement compétitif = décès. Le modèle estime comment les facteurs influencent la proba cumulée de complication en tenant compte du fait que certains patients meurent avant.
+
+Il répond à : Dans la population, quels facteurs augmentent la probabilité cumulée d'avoir une complication, là où le modèle de Cox standard répondrait à la question : Parmi les patients encore vivants et sans complication, qui a le plus de risque instantané ?
+
+Le modèle global est significatif =\> Les covariables expliquent une part du risque. L'âge à la greffe est associé à une légère diminution du risque cumulatif de complication (SHR = 0,991 ; IC95 % \[0,990–0,993\]) . Le sexe féminin est associé à une augmentation significative du risque (SHR = 1,22 ; IC95 % \[1,16–1,29\]). Le diabète est associé à une réduction modeste du risque (SHR = 0,93 ; IC95 % \[0,87–0,99\]). Aucune association significative n’a été observée pour les antécédents d’AVC ou de syndrome coronaire.
+
+A voir : - Mortalité plus élevée chez les jeunes ? Mortalité plus élevée chez les diabétiques ou suivi plus intensif ?
+
+```{r}
+
+# Variable HTA non utilisable car a une seule modalité
+
+# Matrice des covariables
+X <- model.matrix(
+  ~ age_greffe + COD_SEX + diabete + AVC + syndrome_coronaire,
+  data = data_patient
+)[, -1]
+
+
+
+
+# Modèle 
+fg_model <- cmprsk::crr(
+  ftime   = data_patient$delai_greffe_complication,
+  fstatus = data_patient$event_type,
+  cov1    = X
+)
+
+# Résultats
+summary(fg_model)
+```
+
+### Vérification des hypothèses du modèle 
+
+L'hypothèse principal du modèle est la proportionnalité des effets dans le temps (l'effet d'une variable reste constant au cours du suivi).
+
+Si une variable interagit avec le temps : non proportionnalité.
+
+Résultats : Un non respect de de l’hypothèse de proportionnalité a été observée pour l’âge, les antécédents d’AVC et le syndrome coronaire. Des analyses stratifiées selon le temps de suivi ont donc été réalisées.
+
+```{r}
+log_time <- log(data_patient$delai_greffe_complication + 1)
+
+X_ext <- cbind(
+  X,
+  X * log_time
+)
+
+fg_ext <- cmprsk::crr(
+  data_patient$delai_greffe_complication,
+  data_patient$event_type,
+  X_ext
+)
+
+summary(fg_ext)
+
+```
+
+### Découpage du temps 
+
+On va procéder par déocupage du temps de suivi en périodes distinctes. Cette approche va nous permettre d’estimer des effets spécifiques à chaque phase du suivi. La CIF montrait une montée rapide la première année puis un plateau progressif =\> on fait un découpage 0-1an, puis \> 1 an.
+
+-   Période 0-1 an après la greffe
+
+    Durant la première année suivant la greffe, l’âge à la transplantation était associé à une légère augmentation du risque cumulatif de complication (SHR = 1,004 ; IC95 % \[1,001–1,010\] ; p = 0,002). Le sexe était également associé à un risque accru, les femmes présentant un risque environ 15 % plus élevé de complication (SHR = 1,15 ; IC95 % \[1,08–1,23\] ; p \< 0,001).\
+    En revanche, aucune association statistiquement significative n’a été observée pour le diabète, les antécédents d’AVC ou de syndrome coronaire au cours de cette période précoce.
+
+-   Période \> 1 an après la greffe
+
+    Au-delà de la première année post-greffe, l’effet de l’âge s’inverse : un âge plus élevé est associé à une diminution du risque de complication (SHR = 0,97 ; IC95 % \[0,965–0,972\] ; p \< 0,001). Le sexe demeure un facteur de risque important, avec une augmentation d’environ 53 % du risque chez les femmes (SHR = 1,53 ; IC95 % \[1,37–1,72\] ; p \< 0,001).\
+    Le diabète est associé à une réduction modérée du risque de complication tardive (SHR = 0,85 ; IC95 % \[0,75–0,97\] ; p = 0,014). Aucune association significative n’est observée pour les antécédents d’AVC ou de syndrome coronaire dans cette période tardive.
+
+Le diabète "protecteur" attire sur l'attention sur le fait que les diabétiques peuvent mourir plus tôt et donc avoir moins de temps pour faire une complication donc la CIF peut baisser artificellement
+
+```{r}
+# Crétion de la variable période 
+
+data_patient$periode <- ifelse(
+  data_patient$delai_greffe_complication <= 365,
+  "0-1 an",
+  ">1 an"
+)
+
+data_patient$periode <- factor(
+  data_patient$periode,
+  levels = c("0-1 an", ">1 an")
+)
+
+# Création de deux sous-bases
+data_1an  <- subset(data_patient, periode == "0-1 an")
+data_post <- subset(data_patient, periode == ">1 an")
+
+
+```
+
+```{r}
+#Modèle sur la première période 
+X1 <- model.matrix(
+  ~ age_greffe + COD_SEX + diabete + AVC + syndrome_coronaire,
+  data = data_1an
+)[, -1]
+
+fg_1an <- cmprsk::crr(
+  data_1an$delai_greffe_complication,
+  data_1an$event_type,
+  X1
+)
+
+summary(fg_1an)
+
+# Sur la deuxième période (après 1 an)
+X2 <- model.matrix(
+  ~ age_greffe + COD_SEX + diabete + AVC + syndrome_coronaire,
+  data = data_post
+)[, -1]
+
+fg_post <- cmprsk::crr(
+  data_post$delai_greffe_complication,
+  data_post$event_type,
+  X2
+)
+
+summary(fg_post)
+
+
+
+```
+
+### Analyse complémentaire 
+
+. L’incidence cumulée du décès était plus élevée chez les patients diabétiques. Cette mortalité compétitive plus importante réduit mécaniquement la probabilité d’observer une complication du greffon, ce qui peut expliquer l’effet apparemment protecteur du diabète observé dans le modèle de Fine & Gray.
+
+. p-value \> 5% donc le modèle linéaire en l'âge est suffisant
+
+```{r}
+# CIF par diabète 
+cif_deces <- cmprsk::cuminc(
+  data_patient$delai_greffe_complication,
+  data_patient$event_type,
+  group = data_patient$diabete
+)
+
+plot(cif_deces)
+
+
+# vérification des effectifs post 
+nrow(data_post)
+table(data_post$event_type)
+
+```
+
+```{r}
+# Relation non linéaire de l'âge ?
+library(splines)
+
+# Modèle age linéaire 
+X_lin <- model.matrix(
+  ~ age_greffe + COD_SEX + diabete,
+  data = data_patient
+)[, -1]
+
+fg_lin <- cmprsk::crr(
+  data_patient$delai_greffe_complication,
+  data_patient$event_type,
+  X_lin
+)
+
+
+
+# Modèle âge spline
+fg_spline <- cmprsk::crr(
+  data_patient$delai_greffe_complication,
+  data_patient$event_type,
+  X_spline
+)
+
+# Comparaison 
+logLik_lin    <- fg_lin$loglik
+logLik_spline <- fg_spline$loglik
+
+LRT <- 2 * (logLik_spline - logLik_lin)
+p_value <- pchisq(LRT, df = 2, lower.tail = FALSE)
+
+p_value
+
+```
+
+### Synthèse des résultats
+
+Les hypothèses principales du modèle ont été vérifiées (la proportionnalité des effets dans le temps et la bonne spécification des covariables - âge ou âge spline, absence de colinéarité forte entre les covariables - corrigé en supprimant diabete_insuline, indépendance des patients).
+
+Perspectives : ajout de variables : les autres diagnostiques principaux, les centres de suivi et de greffe
+
+### Modèle de Cox classique pour voir si le diabete reste protecteur 
