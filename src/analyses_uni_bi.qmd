@@ -109,6 +109,7 @@ La base de données est de type longitudinale : chaque ligne correspond à un s�
 
 Pour les analyses descriptives, une base agrégée au niveau patient (une ligne par patient) est construite en conservant la première greffe observée.
 
+
 ```{r}
 data_patients <- data %>%
   group_by(study_id, date_greffe) %>%
@@ -121,7 +122,7 @@ data_patients <- data %>%
 ## Distribution de l'âge des patients
 
 ```{r}
-summary(data_patients$AGE_ANN)
+summary(data_patients$age_greffe)
 ```
 
 L’âge des patients greffés présente une médiane de 56 ans, proche de la moyenne, indiquant une distribution globalement symétrique.\
@@ -130,7 +131,7 @@ La moitié des patients a un âge compris entre environ 44 et 67 ans, ce qui cor
 Ci-joint un histogramme pour une meilleure visualisation :
 
 ```{r}
-ggplot(data_patients, aes(x = AGE_ANN)) +
+ggplot(data_patients, aes(x = age_greffe)) +
 geom_histogram(bins = 30, fill = "steelblue", color = "black", alpha = 0.7) +
 labs(
 title = "Distribution de l'âge des patients à la greffe",
@@ -147,7 +148,7 @@ Ce choix est également guidé par l’examen de l’histogramme de l’âge, qu
 
 ```{r}
 data_patients$tranche_age <- cut(
-data_patients$AGE_ANN,
+data_patients$age_greffe,
 breaks = c(0, 30, 40, 50, 60, 70, 80, 120),
 labels = c("<30", "30-39", "40-49", "50-59", "60-69", "70-79", "≥80")
 )
@@ -202,7 +203,7 @@ ggplot(sexe_summary, aes(x = Sexe, y = effectif, fill = Sexe)) +
     vjust = -0.3,
     size = 4
   ) +
-  coord_cartesian(ylim = c(0, 2000)) +   # 👈 MODIFIE ICI selon ton besoin
+  # coord_cartesian(ylim = c(0, 2000)) +   # 
   labs(
     title = "Répartition des patients greffés par sexe",
     subtitle = paste("n =", nrow(data_patients), "patients"),
@@ -383,7 +384,7 @@ Les séjours entre 6–12 mois sont encore présents mais en baisse. \# Les séj
 
 ```{r}
 greffes_par_patient <- data %>%
-  distinct(study_id, date_greffe, RSA_NUM) %>%
+  distinct(study_id, date_greffe, RSA_NUM_suivi) %>%
   group_by(study_id) %>%
   summarise(nb_greffes = n()) %>%
   ungroup()
@@ -1089,21 +1090,22 @@ ggplot(carte_regions) +
   ) +
   theme_minimal()
 
+```
 
-=======
-## Récupération de la liste des diagnostics généraux 
 
 ```{r}
+## Récupération de la liste des diagnostics généraux 
 liste_dgn_pal <- unique(data$DGN_PAL)
 print(liste_dgn_pal)
 ```
+
 
 Pour une meilleure visualisation :
 
 ```{r}
 obtenir_top_diagnostics <- function(data, n = 10) {
   resultat <- data %>%
-    count(DGN_PAL, name = "Occurrences") %>%  
+    count(DGN_PAL_suivi, name = "Occurrences") %>%  
     arrange(desc(Occurrences)) %>%           
     slice_head(n = n)                        
   
@@ -1116,12 +1118,17 @@ top5 <- obtenir_top_diagnostics(data, n = 7)
 print(top5)
 ```
 
+
+
+Nous avons décidé de créer une fonction qui va nous retourner directement le nom des diagnostics 
+
+
 ```{r}
 obtenir_diagnostics_avec_noms <- function(data, n = 10) {
   
   # 1. Calculer les occurrences
   top_diagnostics <- data %>%
-    count(DGN_PAL, name = "Occurrences") %>%
+    count(DGN_PAL_suivi, name = "Occurrences") %>%
     arrange(desc(Occurrences)) %>%
     slice_head(n = n)
   
@@ -1152,17 +1159,17 @@ obtenir_diagnostics_avec_noms <- function(data, n = 10) {
   cat("Recherche des définitions sur aideaucodage.fr...\n")
   top_diagnostics <- top_diagnostics %>%
     rowwise() %>%
-    mutate(Signification = recuperer_definition(DGN_PAL)) %>%
+    mutate(Signification = recuperer_definition(DGN_PAL_suivi)) %>%
     ungroup()
   
   return(top_diagnostics)
 }
 ```
 
+
 ```{r}
 resultat <- obtenir_diagnostics_avec_noms(data, 10)
 print(resultat)
->>>>>>> cdff9d62e1cfb732513d822a86dce1d90d174cd9
 ```
 
 # ANALYSE BIVARIEES
@@ -1172,7 +1179,7 @@ print(resultat)
 Nous allons joindre l'information du sexe (présente dans `data_patients`) à notre décompte de séjours.
 
 ```{r}
-sejours_sexe <- sejours_par_patient %>%
+sejours_sexe <- bilan_par_patient %>%
   left_join(data_patients %>% select(study_id, Sexe), by = "study_id")
 
 head(sejours_sexe)
@@ -1183,10 +1190,10 @@ summary_sejours_sexe <- sejours_sexe %>%
   group_by(Sexe) %>%
   summarise(
     n_patients = n(),
-    moyenne = round(mean(nb_sejours), 2),
-    mediane = median(nb_sejours),
-    ecart_type = round(sd(nb_sejours), 2),
-    max = max(nb_sejours)
+    moyenne = round(mean(duree_totale_cumulee), 2),
+    mediane = median(duree_totale_cumulee),
+    ecart_type = round(sd(duree_totale_cumulee), 2),
+    max = max(duree_totale_cumulee)
   )
 
 print(summary_sejours_sexe)
@@ -1195,15 +1202,15 @@ print(summary_sejours_sexe)
 Visualisation :
 
 ```{r}
-ggplot(sejours_sexe, aes(x = Sexe, y = nb_sejours, fill = Sexe)) +
+ggplot(sejours_sexe, aes(x = Sexe, y = duree_totale_cumulee , fill = Sexe)) +
   geom_boxplot(alpha = 0.7) +
   # On limite l'affichage à 50 séjours pour que le graphique soit lisible
-  coord_cartesian(ylim = c(0, 50)) + 
+  # coord_cartesian(ylim = c(0, 50)) + 
   labs(
     title = "Nombre de séjours post-greffe par sexe",
     subtitle = "Zoom sur les patients (0 à 50 séjours)",
     x = "Sexe",
-    y = "Nombre total de séjours"
+    y = "durée total de séjours"
   ) +
   theme_minimal()
 ```
@@ -1218,9 +1225,8 @@ Le test de Wilcoxon cherche à déterminer si la distribution du nombre de séjo
 
 Interprétation du test :
 
-Le test de Wilcoxon compare la distribution du nombre de séjours entre les hommes et les femmes. Avec une p value de 0,24, le test n'est pas significatif au seuil de 5 %. Cela signifie qu'il n'existe pas de preuve statistique d'une différence de comportement de suivi entre les deux sexes.
+Le test de Wilcoxon compare la distribution du nombre de séjours entre les hommes et les femmes. Avec une p value de 0,003061, le test est pas significatif au seuil de 1 %. Cela signifie qu'il existe pune différence de comportement de suivi entre les deux sexes.
 
-Le sexe du patient ne semble pas être un facteur influençant l'intensité du parcours de soins post-greffe (nombre de réhospitalisations ou de consultations). Les hommes et les femmes reçoivent, en moyenne, un nombre de soins équivalent dans cette cohorte.
 
 ## Distribution de l’âge à la greffe par sexe
 
@@ -1229,9 +1235,9 @@ summary_age_sexe <- data_patients %>%
   group_by(Sexe) %>%
   summarise(
     n = n(),
-    age_moyen = mean(AGE_ANN, na.rm = TRUE),
-    age_mediane = median(AGE_ANN, na.rm = TRUE),
-    ecart_type = sd(AGE_ANN, na.rm = TRUE)
+    age_moyen = mean(age_greffe, na.rm = TRUE),
+    age_mediane = median(age_greffe, na.rm = TRUE),
+    ecart_type = sd(age_greffe, na.rm = TRUE)
   )
 print(summary_age_sexe)
 ```
@@ -1239,7 +1245,7 @@ print(summary_age_sexe)
 Visualisation :
 
 ```{r}
-ggplot(data_patients, aes(x = Sexe, y = AGE_ANN, fill = Sexe)) +
+ggplot(data_patients, aes(x = Sexe, y = age_greffe, fill = Sexe)) +
   geom_boxplot(alpha = 0.7) +
   labs(
     title = "Comparaison de l'âge des patients par sexe",
@@ -1253,22 +1259,23 @@ ggplot(data_patients, aes(x = Sexe, y = AGE_ANN, fill = Sexe)) +
 Proposition de test statistique: t_test
 
 ```{r}
-t.test(AGE_ANN ~ Sexe, data = data_patients)
+t.test(age_greffe ~ Sexe, data = data_patients)
 ```
 
-Observation : Les hommes de l'échantillon sont en moyenne légèrement plus âgés que les femmes (environ 1,7 an de différence). Les médianes confirment cette tendance (57 ans pour les hommes contre 55 ans pour les femmes).
+Observation : Les hommes de l'échantillon sont en moyenne légèrement plus âgés que les femmes (environ 1,3 an de différence). Les médianes confirment cette tendance (56 ans pour les hommes contre 55 ans pour les femmes).
 
 Résultat du test t :
 
--   **Interprétation :** La p-value est largement inférieure au seuil de **0,05**. Cela signifie que la différence d'âge entre les hommes et les femmes est **statistiquement significative**.
+Interprétation : La p-value est largement inférieure au seuil de 0,05. Cela signifie que la différence d'âge entre les hommes et les femmes est statistiquement significative.
 
-    Bien que la différence soit statistiquement réelle, elle reste de faible ampleur (moins de 2 ans). Cela peut suggérer que les hommes ont tendance à être greffés à un âge légèrement plus avancé que les femmes.
+Bien que la différence soit statistiquement réelle, elle reste de faible ampleur (moins de 2 ans). Cela peut suggérer que les hommes ont tendance à être greffés à un âge légèrement plus avancé que les femmes.
 
 Voyons cela avec le calcul de l'état carré pour la puissance du test :
 
+
 ```{r}
 library(effectsize)
-t_to_eta2(t = 2.9093, df_error = 2137.2)
+t_to_eta2(t = 5.3954, df_error = 11993)
 ```
 
 On voit bien la valeur de l'état carré très faible. D'où la confirmation de ce qu'on disait.
@@ -1529,7 +1536,7 @@ data_patients <- data %>%
     
     # L'ajout de la tranche d'âge
     tranche_age = cut(
-      AGE_ANN,
+      age_greffe,
       breaks = c(0, 30, 40, 50, 60, 70, 80, 120),
       labels = c("<30", "30-39", "40-49", "50-59", "60-69", "70-79", "≥80"),
       right = FALSE
@@ -1541,10 +1548,10 @@ Extraction du Top 5 des codes diagnostics par tranche d'âge
 
 ```{r}
 top5_dgn_age <- data_patients %>%
-  group_by(tranche_age, DGN_PAL) %>%
+  group_by(tranche_age, DGN_PAL_suivi) %>%
   summarise(effectif = n(), .groups = "drop") %>%
   # --- AJOUT ICI : On retire RSSABS ---
-  filter(DGN_PAL != "RSSABS") %>% 
+  filter(DGN_PAL_suivi != "RSSABS") %>% 
   # ------------------------------------
   group_by(tranche_age) %>%
   slice_max(order_by = effectif, n = 5, with_ties = FALSE) %>%
@@ -1556,7 +1563,7 @@ print(top5_dgn_age)
 Visualisation : graphique par facettes
 
 ```{r}
-ggplot(top5_dgn_age, aes(x = reorder(DGN_PAL, effectif), y = effectif, fill = tranche_age)) +
+ggplot(top5_dgn_age, aes(x = reorder(DGN_PAL_suivi, effectif), y = effectif, fill = tranche_age)) +
   geom_col() +
   coord_flip() +
   facet_wrap(~tranche_age, scales = "free_y") +
@@ -1569,9 +1576,8 @@ ggplot(top5_dgn_age, aes(x = reorder(DGN_PAL, effectif), y = effectif, fill = tr
   theme(legend.position = "none")
 ```
 
-Interprétations : Le code **Z940** est l'étiquette dominante pour toutes les tranches d'âge. Les codes **Z512** et **RSSABS** complètent régulièrement le podium, montrant une certaine uniformité dans le codage des dossiers, peu importe l'âge.
+Interprétations : Le code **Z940** est l'étiquette dominante pour toutes les tranches d'âge. Les codes **Z512** et **Z291** complètent régulièrement le podium, montrant une certaine uniformité dans le codage des dossiers, peu importe l'âge.
 
-On remarque aussi que pour les tranches d'âges élevées( plus de 70 ans), de nouveaux codes apparaissent dans le Top 5 (comme Z491 ou T861), ce qui n'est pas le cas chez les plus jeunes.
 
 Procédons maintenant à un test de chi-deux.
 
@@ -1579,7 +1585,7 @@ Réalisation du test du Chi-deux:
 
 ```{r}
 # 1. Création de la table de contingence
-table_dgn_age <- table(data_patients$tranche_age, data_patients$DGN_PAL)
+table_dgn_age <- table(data_patients$tranche_age, data_patients$DGN_PAL_suivi)
 
 # 2. Réalisation du test du Chi-deux
 test_chi2 <- chisq.test(table_dgn_age)
@@ -1588,7 +1594,8 @@ test_chi2 <- chisq.test(table_dgn_age)
 print(test_chi2)
 ```
 
-Il n'y a pas de lien statistiquement significatif entre l'âge du patient et son diagnostic principal vu que le test n'est pas significatif (La valeur de la p-value). Les motifs de prise en charge sont distribués de manière similaire à travers toutes les tranches d'âge.
+Malgré une homogénéité visuelle nette des diagnostics dominants entre tranches d’âge (Z940 systématiquement majoritaire, suivi de Z512/Z491), le test du χ² conclut à une association statistiquement significative entre l’âge et le diagnostic principal. Cependant, l’avertissement de R indique que l’approximation du χ² est possiblement incorrecte en raison de nombreux effectifs attendus faibles (table très sparse). Dans ce contexte, la significativité est susceptible d’être amplifiée par la grande taille d’échantillon et le grand nombre de modalités diagnostiques. Ainsi, l’effet observé est vraisemblablement faible sur les diagnostics les plus fréquents, et davantage lié à des variations sur des diagnostics rares.
+
 
 ## Diagnostic principal × durée moyenne de séjour
 
@@ -1802,3 +1809,202 @@ eta2_rehosp <- (H - k + 1) / (n - k)
 eta2_rehosp
 
 ```
+
+# Analyse des comorbilités 
+
+# Préparation : joindre comorbidités à la durée cumulée
+
+```{r}
+# Base patient avec comorbidités (1 ligne/patient)
+comorbidites_patient <- data %>%
+  group_by(study_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(
+    study_id,
+    diabete_r,
+    diabete_insuline_r,
+    HTA_r,
+    AVC_r,
+    syndrome_coronaire_r
+  )
+
+# Jointure avec la durée cumulée
+duree_comorb <- bilan_par_patient %>%
+  left_join(comorbidites_patient, by = "study_id")
+```
+
+# Diabète × durée totale cumulée
+```{r}
+data_diabete <- duree_comorb %>%
+  filter(!is.na(diabete_r))
+```
+
+
+```{r}
+data_diabete %>%
+  group_by(diabete_r) %>%
+  summarise(
+    effectif = n(),
+    moyenne = round(mean(duree_totale_cumulee), 1),
+    mediane = median(duree_totale_cumulee),
+    ecart_type = round(sd(duree_totale_cumulee), 1),
+    max = max(duree_totale_cumulee)
+  )
+```
+
+# Visualisation 
+```{r}
+ggplot(data_diabete, aes(x = diabete_r, y = duree_totale_cumulee, fill = diabete_r)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  coord_cartesian(ylim = c(0, 200)) +
+  labs(
+    title = "Durée totale cumulée selon le diabète",
+    x = "Diabète",
+    y = "Durée totale cumulée (jours)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+# Test 
+```{r}
+wilcox.test(duree_totale_cumulee ~ diabete_r, data = data_diabete)
+```
+
+L’analyse met en évidence une différence significative de la durée totale cumulée de séjour post-greffe entre les patients diabétiques et non diabétiques. Le test non paramétrique de Wilcoxon montre que cette différence est statistiquement significative (p-value < 2.2e−16), indiquant que la distribution des durées de séjour diffère entre les deux groupes.
+
+Cette observation suggère que le diabète est associé à un parcours de soins plus intensif après la greffe rénale, possiblement en raison d’un risque accru de complications, d’une surveillance médicale renforcée ou d’une prise en charge plus complexe.
+
+
+
+## Diabète insulinodépendant × durée totale cumulée
+
+```{r}
+data_diabete_ins <- duree_comorb %>%
+  filter(!is.na(diabete_insuline_r))
+
+stats_diabete_ins <- data_diabete_ins %>%
+  group_by(diabete_insuline_r) %>%
+  summarise(
+    effectif = n(),
+    moyenne = round(mean(duree_totale_cumulee), 1),
+    mediane = median(duree_totale_cumulee),
+    ecart_type = round(sd(duree_totale_cumulee), 1),
+    IQR = IQR(duree_totale_cumulee),
+    max = max(duree_totale_cumulee)
+  )
+
+stats_diabete_ins
+```
+
+## Visualisation 
+```{r}
+ggplot(data_diabete_ins, aes(x = diabete_insuline_r, y = duree_totale_cumulee, fill = diabete_insuline_r)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, color = "black") +
+  coord_cartesian(ylim = c(0, 200)) +
+  labs(
+    title = "Durée totale cumulée selon le diabète insulinodépendant",
+    subtitle = paste("n =", nrow(data_diabete_ins), "patients"),
+    x = "Diabète insulinodépendant",
+    y = "Durée totale cumulée (jours)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+# Test 
+
+```{r}
+test_diabete_ins <- wilcox.test(duree_totale_cumulee ~ diabete_insuline_r, data = data_diabete_ins)
+test_diabete_ins
+```
+
+Les patients présentant un diabète insulinodépendant ont une durée cumulée de séjour significativement différente de celle des patients non insulinodépendants (Wilcoxon, p < 0,05), suggérant une complexité accrue du suivi post-greffe.
+
+
+
+## AVC et durée totale cumulée
+
+```{r}
+data_AVC <- duree_comorb %>%
+  filter(!is.na(AVC_r))
+
+stats_AVC <- data_AVC %>%
+  group_by(AVC_r) %>%
+  summarise(
+    effectif = n(),
+    moyenne = round(mean(duree_totale_cumulee), 1),
+    mediane = median(duree_totale_cumulee),
+    ecart_type = round(sd(duree_totale_cumulee), 1),
+    IQR = IQR(duree_totale_cumulee),
+    max = max(duree_totale_cumulee)
+  )
+
+stats_AVC
+```
+
+# Visualisation
+```{r}
+ggplot(data_AVC, aes(x = AVC_r, y = duree_totale_cumulee, fill = AVC_r)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, color = "black") +
+  coord_cartesian(ylim = c(0, 200)) +
+  labs(
+    title = "Durée totale cumulée selon l’antécédent d’AVC",
+    subtitle = paste("n =", nrow(data_AVC), "patients"),
+    x = "AVC",
+    y = "Durée totale cumulée (jours)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+# Test 
+```{r}
+test_AVC <- wilcox.test(duree_totale_cumulee ~ AVC_r, data = data_AVC)
+test_AVC
+```
+Les patients présentant un antécédent d’AVC ont une durée cumulée de séjour significativement différente de celle des autres patients (Wilcoxon, p < 0,05), reflétant un suivi post-greffe potentiellement plus complexe.
+
+
+## Syndrome coronaire × durée totale cumulée
+
+```{r}
+data_coronaire <- duree_comorb %>%
+  filter(!is.na(syndrome_coronaire_r))
+
+stats_coronaire <- data_coronaire %>%
+  group_by(syndrome_coronaire_r) %>%
+  summarise(
+    effectif = n(),
+    moyenne = round(mean(duree_totale_cumulee), 1),
+    mediane = median(duree_totale_cumulee),
+    ecart_type = round(sd(duree_totale_cumulee), 1),
+    IQR = IQR(duree_totale_cumulee),
+    max = max(duree_totale_cumulee)
+  )
+
+stats_coronaire
+```
+
+# Visualisation 
+
+```{r}
+ggplot(data_coronaire, aes(x = syndrome_coronaire_r, y = duree_totale_cumulee, fill = syndrome_coronaire_r)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, color = "black") +
+  coord_cartesian(ylim = c(0, 200)) +
+  labs(
+    title = "Durée totale cumulée selon le syndrome coronaire",
+    subtitle = paste("n =", nrow(data_coronaire), "patients"),
+    x = "Syndrome coronaire",
+    y = "Durée totale cumulée (jours)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+# Test
+```{r}
+test_coronaire <- wilcox.test(duree_totale_cumulee ~ syndrome_coronaire_r, data = data_coronaire)
+test_coronaire
+```
+
+La présence d’un syndrome coronaire est associée à une différence significative de la durée totale cumulée de séjour post-greffe (Wilcoxon, p < 0,05), indiquant un impact potentiel de cette comorbidité sur le parcours de soins.
