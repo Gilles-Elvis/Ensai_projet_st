@@ -25,8 +25,8 @@ library(purrr)
 ## Importation des données
 
 ```{r}
-data = read.csv("donnees.csv", header = TRUE, sep = ";")
-View(data)
+#data = read.csv("donnees.csv", header = TRUE, sep = ";")
+#View(data)
 ```
 
 ## Vérifier l'importation
@@ -76,20 +76,20 @@ missing_df <- missing_df[order(-missing_df$taux_manquant), ]
 Vu la structure des dates , nous l'avons ramener au format utilisable par R
 
 ```{r}
-# Extraire la partie date (avant les ":")
-# Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
-data$date_greffe_clean <- sub(":.*", "", data$date_greffe)
-data$debut_sejour_clean <- sub(":.*", "", data$debut_sejour)
-data$fin_sejour_clean <- sub(":.*", "", data$fin_sejour)
-
-# Passer en locale anglaise pour reconnaître les mois (JUL, MAR, etc.)
-# pas besoin de ça si votre locale est en anglais déjà
-Sys.setlocale("LC_TIME", "C")
-
-# Convertir en format Date
-data$date_greffe <- as.Date(data$date_greffe_clean, format="%d%b%Y")
-data$debut_sejour <- as.Date(data$debut_sejour_clean, format="%d%b%Y")
-data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
+# # Extraire la partie date (avant les ":")
+# # Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
+# data$date_greffe_clean <- sub(":.*", "", data$date_greffe)
+# data$debut_sejour_clean <- sub(":.*", "", data$debut_sejour)
+# data$fin_sejour_clean <- sub(":.*", "", data$fin_sejour)
+# 
+# # Passer en locale anglaise pour reconnaître les mois (JUL, MAR, etc.)
+# # pas besoin de ça si votre locale est en anglais déjà
+# Sys.setlocale("LC_TIME", "C")
+# 
+# # Convertir en format Date
+# data$date_greffe <- as.Date(data$date_greffe_clean, format="%d%b%Y")
+# data$debut_sejour <- as.Date(data$debut_sejour_clean, format="%d%b%Y")
+# data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
 ```
 
 ## Idenfication du nombre de patients unique
@@ -99,7 +99,7 @@ nb_patients <- length(unique(data$study_id))
 cat("Nombre de patients uniques :", nb_patients, "\n")
 ```
 
-2784 patients pour 22132 lignes donc il y a des patients qui ont plusieurs séjours
+15303  patients pour 22132 lignes donc il y a des patients qui ont plusieurs séjours
 
 # ANALYSE UNIVARIES
 
@@ -203,7 +203,8 @@ ggplot(sexe_summary, aes(x = Sexe, y = effectif, fill = Sexe)) +
     vjust = -0.3,
     size = 4
   ) +
-  # coord_cartesian(ylim = c(0, 2000)) +   # 
+
+  #coord_cartesian(ylim = c(0, 4000)) +   # 👈 MODIFIE ICI selon ton besoin
   labs(
     title = "Répartition des patients greffés par sexe",
     subtitle = paste("n =", nrow(data_patients), "patients"),
@@ -384,7 +385,9 @@ Les séjours entre 6–12 mois sont encore présents mais en baisse. \# Les séj
 
 ```{r}
 greffes_par_patient <- data %>%
-  distinct(study_id, date_greffe, RSA_NUM_suivi) %>%
+
+  distinct(study_id, date_greffe, RSA_NUM_greffe) %>%
+
   group_by(study_id) %>%
   summarise(nb_greffes = n()) %>%
   ungroup()
@@ -434,7 +437,7 @@ ggplot(greffes_heatmap, aes(x = mois, y = nb_greffes)) +
 
 ```{r}
 # Préparation des données
-top_dgn_pal <- sort(table(data_patients$DGN_PAL), decreasing = TRUE)[1:10]
+top_dgn_pal <- sort(table(data_patients$DGN_PAL_suivi), decreasing = TRUE)[1:10]
 df_dgn <- data.frame(
   diagnostic = names(top_dgn_pal),
   nombre = as.numeric(top_dgn_pal)
@@ -468,7 +471,7 @@ On a besoin de connaitre la signification des codes pour savoir quelle interpré
 ## Top 10 des dignostics relié à la greffe
 
 ```{r}
-top_dgn_rel <- sort(table(data_patients$DGN_REL), decreasing = TRUE)[1:10]
+top_dgn_rel <- sort(table(data_patients$DGN_REL_suivi), decreasing = TRUE)[1:10]
 df_dgn_rel <- data.frame(
   diagnostic = names(top_dgn_rel),
   nombre = as.numeric(top_dgn_rel)
@@ -497,117 +500,58 @@ Idem , on ne peut pas dire grand chose( code vide==XXXX ? )
 
 ## Top 10 des établissement qui font plus de greffe
 
+Compter le nombre de greffes par établissement
+
+
 ```{r}
-# Préparer les données
-top_eta <- sort(table(data_patients$ETA_NUM), decreasing = TRUE)[1:10]
-df_eta <- data.frame(
-  etablissement = names(top_eta),
-  nombre = as.numeric(top_eta)
-)
 
-# Calculer les pourcentages
-df_eta$pourcentage <- round(df_eta$nombre / nrow(data_patients) * 100, 1)
+greffes_par_etab <- data %>%
+  group_by(etab_greffe) %>%
+  summarise(
+    nb_greffes = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(nb_greffes))
 
-# Calculer le nombre total d'établissements
-nb_etablissements <- length(unique(data_patients$ETA_NUM))
+greffes_par_etab
 
-# Calculer la part des "autres" établissements
-nb_top10 <- sum(df_eta$nombre)
-nb_autres <- nrow(data_patients) - nb_top10
-
-
-# GRAPHIQUE : Barplot horizontal avec pourcentages
-
-ggplot(df_eta, aes(x = reorder(etablissement, nombre), y = nombre)) +
-  geom_bar(stat = "identity", fill = "darkgreen", color = "black", alpha = 0.8) +
-  geom_text(aes(label = paste0(nombre, " (", pourcentage, "%)")), 
-            hjust = -0.1, size = 3.5, fontface = "bold") +
-  coord_flip() +
-  labs(title = "Top 10 des établissements réalisant des greffes rénales",
-       subtitle = paste("Sur", nb_etablissements, "établissements au total |",
-                        nrow(data_patients), "patients greffés"),
-       x = "Code établissement",
-       y = "Nombre de greffes réalisées") +
-  theme_minimal() +
-  theme(plot.title = element_text(face = "bold", size = 13),
-        plot.subtitle = element_text(size = 10),
-        panel.grid.major.y = element_blank()) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
 ```
 
-Concentration extrême sur UN établissement :
+ghghv
 
-750712184 : 528 greffes (19% du total) → Centre ultra-dominant
+```{r}
+# Top 10 des établissements
 
-Presque 3x plus que le 2ème établissement \#
+library(ggplot2)
 
-À lui seul = autant que les 7 suivants réunis
+top10_etab <- greffes_par_etab %>%
+  slice_head(n = 10)
 
-Distribution des autres centres :
+ggplot(top10_etab, aes(x = reorder(etab_greffe, nb_greffes), y = nb_greffes)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Établissements réalisant le plus de greffes rénales",
+    x = "Établissement",
+    y = "Nombre de greffes"
+  ) +
+  theme_minimal()
 
-2ème rang (330781196) : 188 greffes (6.8%) → Écart énorme avec le 1er
+```
 
-3ème au 10ème rang : entre 102 et 180 greffes (3.7% à 6.5%)
 
-Distribution relativement homogène entre eux (pas de 2ème "super-centre")
-
-Activité des 10 premiers :
-
-Total Top 10 : ≈ 1753 greffes
-
-\% du total : 1753/2784 = 63% des greffes réalisées par 10 centres sur 30
-
-20 autres centres se partagent seulement 37% de l'activité
-
-ANALYSE GÉOGRAPHIQUE DES GREFFES PAR DÉPARTEMENT
+hgvc
 
 ```{r}
 
-
-# ==============================================================================
-# ÉTAPE 1 : Extraire les départements des codes établissements
-# ==============================================================================
-
-# Extraire les 2 premiers chiffres du code ETA_NUM
-data_patients <- data_patients %>%
-  mutate(
-    # Convertir en caractère si nécessaire
-    ETA_NUM_char = as.character(ETA_NUM),
-    # Extraire les 2 premiers chiffres
-    code_dept = substr(ETA_NUM_char, 1, 2),
-    # Créer un nom de département plus lisible
-    departement = paste0("Dép. ", code_dept)
-  )
-
-# Vérifier l'extraction
-cat("=== VÉRIFICATION EXTRACTION DÉPARTEMENTS ===\n")
-cat("Nombre de départements distincts :", 
-    length(unique(data_patients$code_dept)), "\n\n")
-
-# Afficher quelques exemples
-exemples <- data_patients %>%
-  select(ETA_NUM, code_dept, departement) %>%
-  distinct() %>%
-  head(10)
-
-cat("Exemples d'extraction :\n")
-print(exemples)
-
-# Distribution des départements
-cat("\n=== DISTRIBUTION PAR DÉPARTEMENT ===\n")
-dept_distribution <- sort(table(data_patients$code_dept), decreasing = TRUE)
-print(head(dept_distribution, 15))
-
-# ==============================================================================
-# ÉTAPE 2 : Analyse par département (au lieu d'établissement)
-# ==============================================================================
+# ÉTAPE  : Analyse par département (au lieu d'établissement)
 
 # Compter les greffes par département
 greffes_par_dept <- data_patients %>%
-  group_by(code_dept, departement) %>%
+  group_by(DEP_greffe) %>%
   summarise(
     nb_greffes = n(),
-    nb_etablissements = n_distinct(ETA_NUM)
+    nb_etablissements = n_distinct(ETA_NUM_greffe)
   ) %>%
   ungroup() %>%
   arrange(desc(nb_greffes)) %>%
@@ -620,13 +564,11 @@ greffes_par_dept <- data_patients %>%
 cat("\n=== TOP 10 DÉPARTEMENTS ===\n")
 print(head(greffes_par_dept, 10))
 
-# ==============================================================================
 # GRAPHIQUE 1 : Top 10 départements
-# ==============================================================================
 
 top10_dept <- head(greffes_par_dept, 10)
 
-ggplot(top10_dept, aes(x = reorder(departement, nb_greffes), y = nb_greffes)) +
+ggplot(top10_dept, aes(x = reorder(DEP_greffe, nb_greffes), y = nb_greffes)) +
   geom_bar(stat = "identity", fill = "darkgreen", color = "black", alpha = 0.8) +
   geom_text(aes(label = paste0(nb_greffes, " (", pourcentage, "%)\n",
                                 nb_etablissements, " étab.")), 
@@ -657,14 +599,12 @@ ygzehbchjbsdj
 
 ```{r}
 
-# ==============================================================================
 # RÉFÉRENTIEL DÉPARTEMENTS FRANÇAIS
-# ==============================================================================
 
 # Créer la table de correspondance code → nom département
 ref_departements <- data.frame(
-  code_dept = c(
-    "01", "02", "03", "04", "05", "06", "07", "08", "09", "10",
+  DEP_greffe = c(
+    "01", "02", "03", "04", "05", "6", "07", "08", "09", "10",
     "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
     "21", "22", "23", "24", "25", "26", "27", "28", "29", "30",
     "31", "32", "33", "34", "35", "36", "37", "38", "39", "40",
@@ -731,21 +671,28 @@ cat("=== RÉFÉRENTIEL DÉPARTEMENTS ===\n")
 cat("Nombre de départements :", nrow(ref_departements), "\n\n")
 print(head(ref_departements, 10))
 
-# ==============================================================================
-# ÉTAPE 1 : Extraire les codes départements et joindre les noms
-# ==============================================================================
+
+```
+
+gcghvjhbvj,h
+
+```{r}
+#  joindre les noms
 
 data_patients <- data_patients %>%
-  mutate(
-    ETA_NUM_char = as.character(ETA_NUM),
-    code_dept = substr(ETA_NUM_char, 1, 2)
-  ) %>%
   # Jointure avec le référentiel
-  left_join(ref_departements, by = "code_dept")
+  left_join(ref_departements, by = "DEP_greffe")
+```
 
+
+gvjhbkj
+
+
+
+```{r}
 # Vérifier la jointure
 verif_jointure <- data_patients %>%
-  group_by(code_dept, nom_dept, region) %>%
+  group_by(DEP_greffe, nom_dept, region) %>%
   summarise(nb_patients = n()) %>%
   ungroup() %>%
   arrange(desc(nb_patients))
@@ -759,17 +706,20 @@ if (sum(is.na(verif_jointure$nom_dept)) > 0) {
   cat("Codes non reconnus :\n")
   print(verif_jointure %>% filter(is.na(nom_dept)))
 }
+```
 
-# ==============================================================================
+
+```{r}
+
 # ÉTAPE 2 : Analyse par département avec noms
-# ==============================================================================
+
 
 greffes_par_dept <- data_patients %>%
-  filter(!is.na(nom_dept)) %>%  # Exclure les codes non reconnus
-  group_by(code_dept, nom_dept, region) %>%
+  filter(!is.na(nom_dept)) %>%   # Exclure les codes non reconnus
+  group_by(DEP_greffe, nom_dept, region) %>%
   summarise(
     nb_greffes = n(),
-    nb_etablissements = n_distinct(ETA_NUM)
+    nb_etablissements = n_distinct(ETA_NUM_greffe)
   ) %>%
   ungroup() %>%
   arrange(desc(nb_greffes)) %>%
@@ -777,16 +727,19 @@ greffes_par_dept <- data_patients %>%
     pourcentage = round(nb_greffes / sum(nb_greffes) * 100, 1),
     pct_cumule = cumsum(nb_greffes) / sum(nb_greffes) * 100,
     # Créer un label complet
-    dept_label = paste0(nom_dept, " (", code_dept, ")")
+    dept_label = paste0(nom_dept, " (", DEP_greffe, ")")
   )
 
 # Afficher le top 15
 cat("\n=== TOP 15 DÉPARTEMENTS ===\n")
 print(head(greffes_par_dept, 15))
 
-# ==============================================================================
+```
+
+vgh,h
+
+```{r}
 # GRAPHIQUE 1 : Top 10 départements avec NOMS
-# ==============================================================================
 
 top10_dept <- head(greffes_par_dept, 10)
 
@@ -814,16 +767,13 @@ ggplot(top10_dept, aes(x = reorder(dept_label, nb_greffes), y = nb_greffes)) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.2)))
 
 ggsave("fig_top10_departements_noms.png", width = 12, height = 8, dpi = 300)
-
-
 ```
 
-gcghvjhbvj,h
+
+
 
 ```{r}
-# ==============================================================================
 # GRAPHIQUE 2 : Top 15 départements (version plus large)
-# ==============================================================================
 
 top15_dept <- head(greffes_par_dept, 15)
 
@@ -856,17 +806,15 @@ ggsave("fig_top15_departements.png", width = 12, height = 10, dpi = 300)
 gfgvhjb,jbj,
 
 ```{r}
-# ==============================================================================
 # GRAPHIQUE 3 : Par région (regroupement)
-# ==============================================================================
 
 greffes_par_region <- data_patients %>%
   filter(!is.na(region)) %>%
   group_by(region) %>%
   summarise(
     nb_greffes = n(),
-    nb_departements = n_distinct(code_dept),
-    nb_etablissements = n_distinct(ETA_NUM)
+    nb_departements = n_distinct(DEP_greffe),
+    nb_etablissements = n_distinct(ETA_NUM_greffe)
   ) %>%
   ungroup() %>%
   arrange(desc(nb_greffes)) %>%
@@ -905,10 +853,8 @@ ggsave("fig_greffes_par_region.png", width = 12, height = 8, dpi = 300)
 gchjvhj
 
 ```{r}
-# ==============================================================================
-# GRAPHIQUE 4 : Heatmap Région x Département (Top régions)
-# ==============================================================================
 
+# GRAPHIQUE 4 : Heatmap Région x Département (Top régions)
 # Top 5 régions
 top_regions <- head(greffes_par_region$region, 5)
 
@@ -943,9 +889,7 @@ ggsave("fig_heatmap_region_dept.png", width = 12, height = 10, dpi = 300)
 hj,b,b,
 
 ```{r}
-################################################################################
 # GRAPHIQUE BONUS : Treemap des départements
-################################################################################
 
 library(treemap)
 
@@ -988,13 +932,13 @@ departements <- st_read(
 
 ```{r}
 greffes_par_dept <- greffes_par_dept %>%
-  mutate(code_dept = as.character(code_dept))
+  mutate(DEP_greffe = as.character(DEP_greffe))
 
 ```
 
 ```{r}
 carte_greffes <- departements %>%
-  left_join(greffes_par_dept, by = c("code" = "code_dept"))
+  left_join(greffes_par_dept, by = c("code" = "DEP_greffe"))
 
 ```
 
@@ -1046,7 +990,6 @@ carte_regions <- regions_metro %>%
     by = c("nom" = "region")
   )
 
-
 ```
 
 ```{r}
@@ -1093,10 +1036,12 @@ ggplot(carte_regions) +
 ```
 
 
+
 ```{r}
 ## Récupération de la liste des diagnostics généraux 
 liste_dgn_pal <- unique(data$DGN_PAL)
 print(liste_dgn_pal)
+
 ```
 
 
@@ -1105,7 +1050,11 @@ Pour une meilleure visualisation :
 ```{r}
 obtenir_top_diagnostics <- function(data, n = 10) {
   resultat <- data %>%
+
     count(DGN_PAL_suivi, name = "Occurrences") %>%  
+
+    count(diag_greffe, name = "Occurrences") %>%  
+
     arrange(desc(Occurrences)) %>%           
     slice_head(n = n)                        
   
@@ -1311,14 +1260,14 @@ duree_par_patient <- data %>%
 # Jointure avec l'âge à la greffe
 duree_age <- duree_par_patient %>%
   left_join(
-    data_patients %>% select(study_id, AGE_ANN),
+    data_patients %>% select(study_id, age_greffe),
     by = "study_id"
   )
 
 summary(duree_age)
 
 
-ggplot(duree_age, aes(x = AGE_ANN, y = duree_totale)) +
+ggplot(duree_age, aes(x = age_greffe, y = duree_totale)) +
   geom_point(alpha = 0.3, color = "steelblue") +
   geom_smooth(
     method = "loess",
@@ -1340,7 +1289,7 @@ test de spearman : suppose pas de relation linéaire ni de normalité (avec des 
 
 ```{r}
 cor_spearman <- cor.test(
-  duree_age$AGE_ANN,
+  duree_age$age_greffe,
   duree_age$duree_totale,
   method = "spearman",
   exact = FALSE
@@ -1615,7 +1564,7 @@ duree_par_patient <- data %>%
 # Jointure avec le diagnostic principal à la greffe
 duree_diagnostic <- duree_par_patient %>%
   left_join(
-    data_patients %>% select(study_id, DGN_PAL),
+    data_patients %>% select(study_id, DGN_PAL_suivi),
     by = "study_id"
   )
 
@@ -1626,12 +1575,12 @@ duree_diagnostic <- duree_par_patient %>%
 ```{r}
 # Top 5 diagnostics principaux
 top5_dgn <- data_patients %>%
-  count(DGN_PAL, sort = TRUE) %>%
+  count(DGN_PAL_suivi, sort = TRUE) %>%
   slice_head(n = 5) %>%
-  pull(DGN_PAL)
+  pull(DGN_PAL_suivi)
 
 duree_diagnostic_top5 <- duree_diagnostic %>%
-  filter(DGN_PAL %in% top5_dgn)
+  filter(DGN_PAL_suivi %in% top5_dgn)
 
 ```
 
