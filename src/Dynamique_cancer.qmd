@@ -1,0 +1,443 @@
+---
+title: "Dynamique des cancers"
+format: html
+editor: visual
+---
+
+# ANALYSE DE LA DYNAMIQUE TEMPORELLE DE LA PREVALENCE DES CANCERS CHEZ LES PATIENTS GREFFES
+
+### Objectif : Etudier l'évolution de la prévalence des cancers dans le temps, globalement, par région, et par type de cancer, à partir des données de suivi hospitalier des patients greffés.  La prévalence est définie ici comme le nombre de patients présentant un diagnostic de cancer au cours d'une année donnée.
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(stringr)
+```
+
+Charger la base de données :
+
+```{r}
+data_cancer <- readRDS("data.rds")
+```
+
+Vérification du nombre de cancers
+
+```{r}
+table(data_cancer$cancer)
+```
+
+### CREATION DE LA VARIABLE TEMPORELLE
+
+La variable debut_sejour correspond à la date du suivi hospitalier. Elle est utilisée pour définir l'année d'observation.
+
+```{r}
+data_cancer <- data_cancer %>%
+  mutate(
+    debut_sejour = as.Date(debut_sejour),
+    annee = year(debut_sejour)
+  )
+```
+
+Vérification de la distribution temporelle
+
+```{r}
+table(data_cancer$annee)
+
+```
+
+### CALCUL DE LA PREVALENCE ANNUELLE GLOBALE
+
+La prévalence est calculée comme le nombre de patients uniques présentant un cancer chaque année.\
+On utilise n_distinct(study_id) pour éviter de compter plusieurs fois le même patient.
+
+```{r}
+prevalence_par_annee <- data_cancer %>%
+  filter(cancer == 1) %>%
+  group_by(annee) %>%
+  summarise(
+    prevalence = n_distinct(study_id),
+    .groups = "drop"
+  )
+
+```
+
+Affichage des résultats :
+
+```{r}
+print(prevalence_par_annee)
+```
+
+### VISUALISATION DE LA DYNAMIQUE TEMPORELLE
+
+Ce graphique permet d'observer l'évolution de la prévalence des cancers au cours du temps.
+
+```{r}
+ggplot(prevalence_par_annee, aes(x = annee, y = prevalence)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  labs(
+    title = "Evolution temporelle de la prévalence des cancers",
+    x = "Année",
+    y = "Nombre de patients avec cancer"
+  ) +
+  theme_minimal()
+```
+
+### ANALYSE PAR REGION
+
+Cette analyse permet d'identifier des variations géographiques dans la prévalence des cancers.
+
+```{r}
+prevalence_region <- data_cancer %>%
+  filter(cancer == 1) %>%
+  filter(!is.na(region)) %>%   # enlève les NA
+  group_by(region, annee) %>%
+  summarise(
+    prevalence = n_distinct(study_id),
+    .groups = "drop"
+  )
+```
+
+Visualisation :
+
+```{r}
+ggplot(prevalence_region, aes(x = annee, y = prevalence)) +
+  
+  geom_line(color = "steelblue", linewidth = 0.9) +
+  geom_point(color = "steelblue", size = 1.8) +
+  
+  facet_wrap(~ region, scales = "free_y", ncol = 4) +
+  
+  labs(
+    title = "Evolution de la prévalence des cancers par région",
+    x = "Année",
+    y = "Nombre de patients"
+  ) +
+  
+  theme_classic(base_size = 12) +
+  
+  theme(
+    
+    # DIMINUER ICI la taille des noms des régions
+    strip.text = element_text(
+      face = "bold",
+      size = 7   # ← valeur clé (tu peux tester 6 ou 8)
+    ),
+    
+    strip.background = element_blank(),
+    
+    plot.title = element_text(
+      face = "bold",
+      size = 14,
+      hjust = 0.5
+    ),
+    
+    axis.title = element_text(size = 12),
+    
+    panel.border = element_blank()
+    
+  )
+```
+
+### IDENTIFICATION DU TYPE DE CANCER
+
+Le type de cancer est défini par les 3 premiers caractères du code CIM-10 (ex : C50 = cancer du sein)
+
+```{r}
+data_cancer <- data_cancer %>%
+  mutate(
+    type_cancer = ifelse(
+      cancer == 1,
+      substr(DGN_PAL_suivi, 1, 3),
+      NA
+    )
+  )
+```
+
+Fréquence des cancers:
+
+```{r}
+freq_cancer <- data_cancer %>%
+  filter(cancer == 1) %>%
+  count(type_cancer, sort = TRUE)
+
+print(freq_cancer)
+```
+
+Graphique des cancers les plus fréquents :
+
+```{r}
+#################################################
+# TOP 10 DES CANCERS LES PLUS FREQUENTS
+#################################################
+
+top10 <- freq_cancer %>%
+  slice_max(n, n = 10)
+
+ggplot(top10, aes(x = reorder(type_cancer, n), y = n)) +
+  
+  geom_col(fill = "steelblue") +
+  
+  coord_flip() +
+  
+  labs(
+    title = "Types de cancers les plus fréquents",
+    x = "Type de cancer (code CIM-10)",
+    y = "Nombre de patients"
+  ) +
+  
+  theme_classic(base_size = 14)
+```
+
+Pour une meilleure visualisation:
+
+```{r}
+labels_cancer <- c(
+  "C44" = "Peau",
+  "C64" = "Rein",
+  "C34" = "Poumon",
+  "C83" = "Lymphome",
+  "C67" = "Vessie",
+  "C78" = "Métastases pulmonaires",
+  "C46" = "Sarcome de Kaposi",
+  "C61" = "Prostate",
+  "C50" = "Sein",
+  "C18" = "Côlon"
+)
+
+top10$type_cancer_label <- labels_cancer[top10$type_cancer]
+```
+
+```{r}
+ggplot(top10, aes(x = reorder(type_cancer_label, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    x = "Type de cancer",
+    y = "Nombre de patients",
+    title = "Types de cancers les plus fréquents"
+  ) +
+  theme_classic()
+```
+
+La distribution des types de cancers montre des différences de fréquence entre les différentes localisations tumorales. Le cancer correspondant au code **C44** (cancer de la peau) est le plus fréquent et se distingue nettement des autres catégories.
+
+Les cancers correspondant aux codes **C64** (cancer du rein) et **C34** (cancer du poumon) sont également parmi les plus représentés, mais avec des fréquences plus faibles. D’autres types de cancers sont observés, notamment les lymphomes non hodgkiniens (**C83**), les cancers de la vessie (**C67**), les localisations secondaires pulmonaires (**C78**), le sarcome de Kaposi (**C46**), ainsi que les cancers de la prostate (**C61**), du sein (**C50**) et du côlon (**C18**).
+
+Dans l’ensemble, ces résultats montrent une répartition inégale des types de cancers, avec une fréquence plus élevée pour certains types, notamment les cancers de la peau.
+
+### Dynamique temporelle des principaux cancers
+
+##### DYNAMIQUE DES 5 PRINCIPAUX CANCERS
+
+```{r}
+top5 <- freq_cancer %>%
+  slice_max(n, n = 5) %>%
+  pull(type_cancer)
+
+prevalence_top5 <- data_cancer %>%
+  filter(type_cancer %in% top5) %>%
+  group_by(type_cancer, annee) %>%
+  summarise(
+    prevalence = n_distinct(study_id),
+    .groups = "drop"
+  )
+```
+
+Pour une visualisation :
+
+```{r}
+ggplot(prevalence_top5, aes(x = annee, y = prevalence, color = type_cancer)) +
+  
+  geom_line(linewidth = 1) +
+  geom_point() +
+  
+  labs(
+    title = "Evolution des principaux types de cancers",
+    x = "Année",
+    y = "Nombre de patients",
+    color = "Type de cancer"
+  ) +
+  
+  theme_classic()
+```
+
+L’évolution des principaux types de cancers montre des variations au cours du temps selon les localisations tumorales. Le cancer de la peau (**C44**) présente les effectifs les plus élevés sur l’ensemble de la période, avec une augmentation jusqu’en 2021, suivie d’une diminution.
+
+Les cancers du rein (**C64**) et du poumon (**C34**) présentent également des variations, avec des effectifs plus modérés. Les cancers de la vessie (**C67**) et les lymphomes non hodgkiniens (**C83**) présentent des effectifs plus faibles et des variations moins marquées.
+
+Dans l’ensemble, les effectifs varient selon les années et les types de cancers.
+
+### Prévalence par région, année et type de cancer
+
+```{r}
+prevalence_region_type <- data_cancer %>%
+  
+  filter(type_cancer %in% top5) %>%
+  
+  filter(!is.na(region)) %>%
+  
+  group_by(region, annee, type_cancer) %>%
+  
+  summarise(
+    prevalence = n_distinct(study_id),
+    .groups = "drop"
+  )
+```
+
+Visualisation :
+
+```{r}
+ggplot(prevalence_region_type, 
+       aes(x = annee, y = prevalence, color = type_cancer)) +
+  
+  geom_line(linewidth = 1) +
+  
+  geom_point(size = 1.8) +
+  
+  facet_wrap(~ region, scales = "free_y", ncol = 3) +
+  
+  labs(
+    title = "Evolution des principaux types de cancers par région",
+    x = "Année",
+    y = "Nombre de patients",
+    color = "Type de cancer"
+  ) +
+  
+  theme_classic(base_size = 12) +
+  
+  theme(
+    strip.text = element_text(size = 8, face = "bold"),
+    strip.background = element_blank()
+  )
+```
+
+Ce graphique met en évidence des variations régionales dans l’évolution des principaux types de cancers. Le cancer de la peau (**C44**) présente les effectifs les plus élevés dans l’ensemble des régions et sur toute la période étudiée. Les autres types de cancers, notamment les cancers du rein (**C64**), du poumon (**C34**), de la vessie (**C67**) et les lymphomes (**C83**), présentent des effectifs plus faibles et des variations plus modérées. Certaines régions, comme l’Île-de-France et la Nouvelle-Aquitaine, présentent des effectifs plus élevés que les autres.
+
+### REGION AVEC LE PLUS DE CAS PAR TYPE DE CANCER
+
+```{r}
+resume_region <- prevalence_region_type %>%
+  
+  group_by(region, type_cancer) %>%
+  
+  summarise(
+    total = sum(prevalence),
+    .groups = "drop"
+  ) %>%
+  
+  arrange(type_cancer, desc(total))
+
+resume_region
+```
+
+## Tester s’il existe une tendance temporelle
+
+Vérifier si la prévalence augmente ou diminue significativement dans le temps:
+
+MODELE DE POISSON : EVOLUTION DANS LE TEMPS
+
+```{r}
+modele_poisson <- glm(
+  prevalence ~ annee,
+  family = poisson(link = "log"),
+  data = prevalence_par_annee
+)
+
+summary(modele_poisson)
+```
+
+### Analyse de la tendance temporelle de la prévalence
+
+Un modèle de régression de Poisson a été utilisé afin d’évaluer l’évolution de la prévalence des cancers au cours du temps. Le coefficient associé à l’année est positif (B = 0,029 ; p = 0,070), indiquant une tendance à l’augmentation de la prévalence au cours de la période étudiée. Cette augmentation correspond à une hausse relative estimée à environ 3 % par an (exponentielle de B).
+
+Toutefois, cette tendance n’est pas statistiquement significative au seuil de 5 %, bien qu’elle soit proche du seuil de significativité.
+
+### Comparer les régions :
+
+Voir si certaines régions ont significativement plus de cancers.
+
+```{r}
+modele_region <- glm(
+  prevalence ~ annee + region,
+  family = poisson(link = "log"),
+  data = prevalence_region
+)
+
+summary(modele_region)
+```
+
+\# Effet du temps (année)
+
+annee Estimate = 0.01274\
+p-value = 0.444
+
+Il n’y a pas d’association statistiquement significative entre l’année et la prévalence des cancers après ajustement sur la région.
+
+\# Effet de la région
+
+Dans un modèle de Poisson, les coefficients représentent une différence relative par rapport à une région de référence.
+
+La région de référence est la première dans l’ordre alphabétique, ici : Auvergne-Rhône-Alpes. Toutes les autres régions sont comparées à celle-ci.
+
+## 
+
+##Région avec une prévalence significativement élevée
+
+Île-de-France:
+
+Estimate = 0.53967\
+p-value \< 0.001
+
+Calcul du ratio : exp(0.53967) ≈ 1.72
+
+La prévalence est environ 72 % plus élevée en Île-de-France que dans la région de référence.
+
+##Régions avec une prévalence significativement plus faible
+
+Ces régions ont des coefficients négatifs significatifs :
+
+Bourgogne-Franche-Comté
+
+-    Bretagne
+
+    Centre-Val de Loire
+
+    Grand Est
+
+    Hauts-de-France
+
+    Normandie
+
+    Pays de la Loire
+
+    Provence-Alpes-Côte d’Azur
+
+Bourgogne-Franche-Comté\
+Estimate = -1.198\
+exp(-1.198) ≈ 0.30
+
+La prévalence est environ 70 % plus faible que dans la région de référence.
+
+#### Régions sans différence significative
+
+Ces régions ne sont pas significativement différentes :
+
+Nouvelle-Aquitaine (p = 0.39)
+
+Occitanie (p = 0.059, limite)
+
+Un modèle de régression de Poisson a été utilisé afin d’évaluer l’association entre la région et la prévalence des cancers, ajustée sur l’année. Les résultats montrent une variation significative de la prévalence selon les régions.
+
+La région Île-de-France présente une prévalence significativement plus élevée que la région de référence (p \< 0,001). À l’inverse, plusieurs régions, notamment la Bourgogne-Franche-Comté, la Bretagne, le Centre-Val de Loire, le Grand Est, les Hauts-de-France, la Normandie, les Pays de la Loire et la Provence-Alpes-Côte d’Azur, présentent une prévalence significativement plus faible.
+
+En revanche, aucune association significative n’a été observée entre l’année et la prévalence après ajustement sur la région.
+
+Ces résultats mettent en évidence une variabilité régionale significative de la prévalence des cancers dans la population étudiée.
+
+### Identifier les régions avec les plus fortes différences :
+
+```{r}
+exp(coef(modele_region))
+```
