@@ -419,10 +419,9 @@ if (sum(is.na(verif_jointure$nom_dept)) > 0) {
 
 ```
 
-
 ### Création de la variable cancer
-Le cancer correspond à 
+Le cancer correspond au diagnostiques 
 ```{r}
 # base rds
-saveRDS(data_patient, "data_patient.rds")
+saveRDS(data, "data.rds")
 ```
