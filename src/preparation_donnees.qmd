@@ -421,6 +421,15 @@ if (sum(is.na(verif_jointure$nom_dept)) > 0) {
 
 ```
 
+### Création de la variable cancer
+Le cancer correspond au diagnostiques principaux commençant par C
+```{r}
+data <- data %>%
+  mutate(
+    cancer = as.integer(str_detect(DGN_PAL_suivi, regex("^c", ignore_case = TRUE)))
+  )
+```
+
 ### Enregistrement de la base de données préparée
 ```{r}
 # base rds
@@ -429,13 +438,5 @@ saveRDS(data, "data.rds")
 
 
 
-### Création de la variable cancer
-Le cancer correspond au diagnostiques principaux commençant par C
-```{r}
-data <- data %>%
-  mutate(
-    cancer_sejour = as.integer(str_detect(DGN_PAL_suivi, regex("^c", ignore_case = TRUE)))
-  )
 
-```
 
