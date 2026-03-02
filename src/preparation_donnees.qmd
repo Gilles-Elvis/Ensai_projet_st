@@ -424,8 +424,6 @@ if (sum(is.na(verif_jointure$nom_dept)) > 0) {
 Le cancer correspond à 
 ```{r}
 # base rds
-data_patient <- data_patient[!is.na(data_patient$delai_greffe_complication), ]
-
 saveRDS(data_patient, "data_patient.rds")
 
 ```
