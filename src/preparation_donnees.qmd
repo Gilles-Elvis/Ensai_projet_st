@@ -136,60 +136,9 @@ head(data)
 
 
 ```
-
-## Création de la variable 'periode_greffe'
-
-```{r}
-data <- data %>%
-mutate(periode_greffe = if_else(debut_sejour < date_greffe,
-"Pre_greffe",
-"Post_greffe"))
-table(data$periode_greffe)
-
-### Tri de la base par date de greffe
-```
-
-```{r}
-data <- data %>%arrange(date_greffe)
-```
-
-## Création de la variable tranche d'âge
-
-```{r}
-data <- data %>%
-  mutate(tranche_age = cut(age_greffe,
-                           breaks = c(0, 30, 40, 50, 60, 70, 80, 120),
-labels = c("<30", "30-39", "40-49", "50-59", "60-69", "70-79", "≥80")
-))
-```
-
-Code pour la création de la base
-
-```{r}
-# saveRDS(data, "data.rds")
-
-```
-
-## Extraction 2 : Exploration
-
-Problème majeur n°1 : présence de lignes “en-tête” dans les données
-
-Ça veut dire que **l’en-tête a été lu comme une observation**\
-➡️ C’est **très grave analytiquement** (ça fausse :histogrammes, moyennes , comptages, cartes, modèles)
-
-```{r}
-# À exécuter une seule fois, tout au début du projet
-## 1. Suppression des lignes parasites (lignes = noms de variables)
-## Ces lignes apparaissent souvent lors d'import Excel / CSV
-data <- data[!apply(data, 1, function(x) any(x %in% names(data))), ]
-
-
-```
-
 Problème majeur n°2 : variables numériques stockées en `character`
 
 ```{r}
-
 ## NETTOYAGE DES FORMATS – SANS RECODAGE  
 
 
@@ -248,9 +197,61 @@ vars_character <- c(
 )
 
 data[vars_character] <- lapply(data[vars_character], as.character)
+```
+
+
+
+
+## Création de la variable 'periode_greffe'
+
+```{r}
+data <- data %>%
+mutate(periode_greffe = if_else(debut_sejour < date_greffe,
+"Pre_greffe",
+"Post_greffe"))
+table(data$periode_greffe)
+
+### Tri de la base par date de greffe
+```
+
+```{r}
+data <- data %>%arrange(date_greffe)
+```
+
+## Création de la variable tranche d'âge
+
+```{r}
+data <- data %>%
+  mutate(tranche_age = cut(age_greffe,
+                           breaks = c(0, 30, 40, 50, 60, 70, 80, 120),
+labels = c("<30", "30-39", "40-49", "50-59", "60-69", "70-79", "≥80")
+))
+```
+
+Code pour la création de la base
+
+```{r}
+# saveRDS(data, "data.rds")
+
+```
+
+## Extraction 2 : Exploration
+
+Problème majeur n°1 : présence de lignes “en-tête” dans les données
+
+Ça veut dire que **l’en-tête a été lu comme une observation**\
+➡️ C’est **très grave analytiquement** (ça fausse :histogrammes, moyennes , comptages, cartes, modèles)
+
+```{r}
+# À exécuter une seule fois, tout au début du projet
+## 1. Suppression des lignes parasites (lignes = noms de variables)
+## Ces lignes apparaissent souvent lors d'import Excel / CSV
+data <- data[!apply(data, 1, function(x) any(x %in% names(data))), ]
 
 
 ```
+
+
 
 Recodage des variables
 
@@ -393,7 +394,7 @@ ref_departements <- data.frame(
 
 data <- data %>%
   mutate(
-    ETA_NUM_char = as.character(ETA_NUM),
+    ETA_NUM_char = as.character(ETA_NUM_greffe),
     code_dept = substr(ETA_NUM_char, 1, 2)
   ) %>%
   # Jointure avec le référentiel
@@ -419,6 +420,8 @@ if (sum(is.na(verif_jointure$nom_dept)) > 0) {
 ```
 
 
+### Création de la variable cancer
+Le cancer correspond à 
 ```{r}
 # base rds
 data_patient <- data_patient[!is.na(data_patient$delai_greffe_complication), ]
