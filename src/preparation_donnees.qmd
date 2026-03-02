@@ -25,6 +25,8 @@ il y a des patients qui ne sont pas morts et qui n'ont pas de suivi après la gr
 library(dplyr)
 library(ggplot2)
 library(lubridate)
+library(stringr)
+
 ```
 
 ## Importation des données
@@ -87,23 +89,23 @@ cat("Nombre de colonnes :", ncol(data), "\n")
 ## Variables manquantes
 
 ```{r}
-est_manquant <- function(x) {
-   is.na(x) | (is.character(x) & trimws(x) == "")
- }
-
-# Calcul du taux de valeurs manquantes par variable
- taux_manquant <- sapply(data, function(col) {
-   sum(est_manquant(col)) / length(col) * 100
- })
-
-# Dataframe récapitulatif
- missing_df <- data.frame(
-   variable = names(taux_manquant),
-   taux_manquant = taux_manquant
- )
-
-# Tri décroissant par taux de valeurs manquantes
- missing_df <- missing_df[order(-missing_df$taux_manquant), ]
+# est_manquant <- function(x) {
+#    is.na(x) | (is.character(x) & trimws(x) == "")
+#  }
+# 
+# # Calcul du taux de valeurs manquantes par variable
+#  taux_manquant <- sapply(data, function(col) {
+#    sum(est_manquant(col)) / length(col) * 100
+#  })
+# 
+# # Dataframe récapitulatif
+#  missing_df <- data.frame(
+#    variable = names(taux_manquant),
+#    taux_manquant = taux_manquant
+#  )
+# 
+# # Tri décroissant par taux de valeurs manquantes
+#  missing_df <- missing_df[order(-missing_df$taux_manquant), ]
 
 ```
 
@@ -419,9 +421,21 @@ if (sum(is.na(verif_jointure$nom_dept)) > 0) {
 
 ```
 
-### Création de la variable cancer
-Le cancer correspond au diagnostiques 
+### Enregistrement de la base de données préparée
 ```{r}
 # base rds
 saveRDS(data, "data.rds")
 ```
+
+
+
+### Création de la variable cancer
+Le cancer correspond au diagnostiques principaux commençant par C
+```{r}
+data <- data %>%
+  mutate(
+    cancer_sejour = as.integer(str_detect(DGN_PAL_suivi, regex("^c", ignore_case = TRUE)))
+  )
+
+```
+
