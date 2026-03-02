@@ -425,5 +425,4 @@ Le cancer correspond à
 ```{r}
 # base rds
 saveRDS(data_patient, "data_patient.rds")
-
 ```
