@@ -71,25 +71,38 @@ missing_df <- missing_df[order(-missing_df$taux_manquant), ]
 
 ```
 
-## Conversion des dates
-
-Vu la structure des dates , nous l'avons ramener au format utilisable par R
+## Pour rapport
 
 ```{r}
-# # Extraire la partie date (avant les ":")
-# # Exemple : "28JUL2022:00:00:00" devient "28JUL2022"
-# data$date_greffe_clean <- sub(":.*", "", data$date_greffe)
-# data$debut_sejour_clean <- sub(":.*", "", data$debut_sejour)
-# data$fin_sejour_clean <- sub(":.*", "", data$fin_sejour)
-# 
-# # Passer en locale anglaise pour reconnaître les mois (JUL, MAR, etc.)
-# # pas besoin de ça si votre locale est en anglais déjà
-# Sys.setlocale("LC_TIME", "C")
-# 
-# # Convertir en format Date
-# data$date_greffe <- as.Date(data$date_greffe_clean, format="%d%b%Y")
-# data$debut_sejour <- as.Date(data$debut_sejour_clean, format="%d%b%Y")
-# data$fin_sejour <- as.Date(data$fin_sejour_clean, format="%d%b%Y")
+# Fonction robuste pour détecter les valeurs manquantes
+taux_na <- function(x){
+
+  # Si la colonne est caractère, on nettoie l'encodage
+  if (is.character(x)) {
+    x <- iconv(x, from = "", to = "UTF-8", sub = "")
+  }
+
+  mean(is.na(x) | (is.character(x) & x == "")) * 100
+}
+
+# Construction du tableau des variables
+table_variables <- data.frame(
+  variable = names(data),
+  type_variable = sapply(data, function(x) class(x)[1]),
+  taux_manquant = sapply(data, taux_na)
+)
+
+# Arrondir les pourcentages
+table_variables$taux_manquant <- round(table_variables$taux_manquant, 2)
+
+# Colonnes pour compléter le tableau
+table_variables$unite <- NA
+table_variables$libelle <- table_variables$variable
+
+# Tri par taux de données manquantes
+table_variables <- table_variables[order(-table_variables$taux_manquant), ]
+
+table_variables
 ```
 
 ## Idenfication du nombre de patients unique
@@ -99,7 +112,7 @@ nb_patients <- length(unique(data$study_id))
 cat("Nombre de patients uniques :", nb_patients, "\n")
 ```
 
-15303  patients pour 22132 lignes donc il y a des patients qui ont plusieurs séjours
+15303 patients pour 22132 lignes donc il y a des patients qui ont plusieurs séjours
 
 # ANALYSE UNIVARIES
 
@@ -108,7 +121,6 @@ cat("Nombre de patients uniques :", nb_patients, "\n")
 La base de données est de type longitudinale : chaque ligne correspond à un séjour hospitalier, et un même patient (identifié par `study_id`) peut apparaître plusieurs fois.
 
 Pour les analyses descriptives, une base agrégée au niveau patient (une ligne par patient) est construite en conservant la première greffe observée.
-
 
 ```{r}
 data_patients <- data %>%
@@ -164,19 +176,30 @@ age_summary
 Pour une meilleure visualisation:
 
 ```{r}
-ggplot(age_summary, aes(x = tranche_age, y = n)) +
-geom_col(fill = "steelblue", color = "black", alpha = 0.8) +
-geom_text(
-aes(label = paste0(n, " (", pourcentage, "%)")),
-vjust = -0.3,
-size = 3
-) +
-labs(
-title = "Répartition des patients par tranche d’âge",
-x = "Tranche d’âge (années)",
-y = "Nombre de patients"
-) +
-theme_minimal()
+p <- ggplot(age_summary, aes(x = tranche_age, y = n)) +
+  geom_col(fill = "steelblue", color = "black", alpha = 0.8) +
+  geom_text(
+    aes(label = paste0(n, " (", pourcentage, "%)")),
+    vjust = -0.3,
+    size = 3
+  ) +
+  labs(
+    x = "Tranche d’âge (années)",
+    y = "Nombre de patients"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),      # supprime tout le quadrillage
+    axis.line = element_blank()        # supprime les lignes des axes
+  )
+
+ggsave(
+  "figures/tranche_age.png",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 
 ```
 
@@ -184,37 +207,6 @@ theme_minimal()
 
 ```{r}
 # Tableau de distribution par sexe
-sexe_summary <- data_patients %>%
-  group_by(Sexe) %>%
-  summarise(
-    effectif = n(),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    pourcentage = round(effectif / sum(effectif) * 100, 1)
-  )
-
-print(sexe_summary)
-
-ggplot(sexe_summary, aes(x = Sexe, y = effectif, fill = Sexe)) +
-  geom_col(alpha = 0.8, color = "black") +
-  geom_text(
-    aes(label = paste0(effectif, " (", pourcentage, "%)")),
-    vjust = -0.3,
-    size = 4
-  ) +
-
-  #coord_cartesian(ylim = c(0, 4000)) +   # 👈 MODIFIE ICI selon ton besoin
-  labs(
-    title = "Répartition des patients greffés par sexe",
-    subtitle = paste("n =", nrow(data_patients), "patients"),
-    x = "Sexe",
-    y = "Nombre de patients"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "none")
-
-
 
 ```
 
@@ -304,14 +296,22 @@ La médiane (4) est plus représentative que la moyenne (7.95)
 ### Graphiquement
 
 ```{r}
-dist_sejours <- table(table(data$study_id))
+p1 <- dist_sejours <- table(table(data$study_id))
 
 barplot(
   dist_sejours,
-  xlab = "Nombre de séjours par patient",
+  xlab = "Durée totale de séjours par patient",
   ylab = "Nombre de patients",
-  main = "Distribution du nombre de séjours par patient",
+  main = "Distribution  de séjours par patient",
   col = "steelblue"
+)
+
+
+p1
+
+ggsave(
+  "figures/delai_sejours_suivi_anexe.png",
+ 
 )
 ```
 
@@ -324,43 +324,63 @@ Quelques patients ont un suivi très intensif : jusqu'à 3101 séjours pour un p
 ### Densité des séjours
 
 ```{r}
-# # Délai entre greffe et début du séjour de suivi (en jours)
+str(data$date_greffe)
+str(data$debut_sejour)
+```
+
+```{r}
+## Délai entre greffe et début du séjour de suivi (en jours)
 data$delai_greffe_suivi <- as.numeric(data$debut_sejour - data$date_greffe)
 
 # Durée du séjour de suivi (en jours)
 data$duree_sejour <- as.numeric(data$fin_sejour - data$debut_sejour)
 
 # Distribution temporelle des séjours de suivi
-delais_tranches <- table(cut(data$delai_greffe_suivi, 
-                             breaks = c( 0, 7, 30, 90, 180, 365, Inf),
-                             labels = c("0-7j", "8-30j", "1-3mois", 
-                                        "3-6mois", "6-12mois", ">12mois")))
+delais_tranches <- table(
+  cut(data$delai_greffe_suivi,
+      breaks = c(0, 7, 30, 90, 180, 365, Inf),
+      labels = c("0-7j", "8-30j", "1-3mois",
+                 "3-6mois", "6-12mois", ">12mois"))
+)
+
 cat("\nDistribution temporelle des séjours de suivi :\n")
 print(delais_tranches)
+
 cat("\nPourcentages :\n")
 print(round(prop.table(delais_tranches) * 100, 1))
 
 
-# Graphiquement :
-
+# Préparation des données pour le graphique
 df_plot <- as.data.frame(delais_tranches)
 colnames(df_plot) <- c("classe_delai", "nb_sejours")
 
-# Forcer l’ordre logique des classes
 df_plot$classe_delai <- factor(
   df_plot$classe_delai,
-  levels = c("Négatif", "0-7j", "8-30j", "1-3mois",
+  levels = c("0-7j", "8-30j", "1-3mois",
              "3-6mois", "6-12mois", ">12mois")
 )
 
-ggplot(df_plot, aes(x = classe_delai, y = nb_sejours)) +
-  geom_col(fill = "steelblue") +
+p <- ggplot(df_plot, aes(x = classe_delai, y = nb_sejours)) +
+  geom_col(fill = "steelblue", color = "black", alpha = 0.8) +
   labs(
-    title = "Distribution temporelle des séjours de suivi",
-    x = "séjour de suivi",
+    x = "Délai entre la greffe et le séjour de suivi",
     y = "Nombre de séjours"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_blank()
+  )
+
+p
+
+ggsave(
+  "figures/delai_sejours_suivi.png",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 ```
 
 Concentration majeure entre 1 et 6 mois
@@ -502,7 +522,6 @@ Idem , on ne peut pas dire grand chose( code vide==XXXX ? )
 
 Compter le nombre de greffes par établissement
 
-
 ```{r}
 
 greffes_par_etab <- data %>%
@@ -528,17 +547,26 @@ top10_etab <- greffes_par_etab %>%
   slice_head(n = 10)
 
 ggplot(top10_etab, aes(x = reorder(etab_greffe, nb_greffes), y = nb_greffes)) +
-  geom_col(fill = "steelblue") +
+  geom_col(fill = "steelblue", color = "black", alpha = 0.8) +
+  geom_text(
+    aes(label = nb_greffes),
+    hjust = -0.1, size = 3.5, fontface = "bold"
+  ) +
   coord_flip() +
   labs(
-    title = "Établissements réalisant le plus de greffes rénales",
-    x = "Établissement",
-    y = "Nombre de greffes"
+    title   = "Top 10 des établissements réalisant le plus de greffes rénales",
+    x       = "Établissement",
+    y       = "Nombre de greffes réalisées",
+    caption = "Source : données hospitalières"
   ) +
-  theme_minimal()
-
+  theme_minimal() +
+  theme(
+    plot.title         = element_text(face = "bold", size = 14),
+    axis.text.y        = element_text(size = 10),
+    panel.grid.major.y = element_blank()
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
 ```
-
 
 hgvc
 
@@ -588,7 +616,7 @@ ggplot(top10_dept, aes(x = reorder(DEP_greffe, nb_greffes), y = nb_greffes)) +
     plot.subtitle = element_text(size = 10),
     panel.grid.major.y = element_blank()
   ) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.2)))
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
 
 ggsave("fig_top10_departements.png", width = 12, height = 8, dpi = 300)
 
@@ -684,10 +712,7 @@ data_patients <- data_patients %>%
   left_join(ref_departements, by = "DEP_greffe")
 ```
 
-
 gvjhbkj
-
-
 
 ```{r}
 # Vérifier la jointure
@@ -707,7 +732,6 @@ if (sum(is.na(verif_jointure$nom_dept)) > 0) {
   print(verif_jointure %>% filter(is.na(nom_dept)))
 }
 ```
-
 
 ```{r}
 
@@ -744,13 +768,13 @@ vgh,h
 top10_dept <- head(greffes_par_dept, 10)
 
 ggplot(top10_dept, aes(x = reorder(dept_label, nb_greffes), y = nb_greffes)) +
-  geom_bar(stat = "identity", fill = "darkgreen", color = "black", alpha = 0.8) +
+  geom_bar(stat = "identity", fill = "steelblue", color = "black", alpha = 0.8) +
   geom_text(aes(label = paste0(nb_greffes, " (", pourcentage, "%)\n",
                                 nb_etablissements, " étab.")), 
-            hjust = -0.1, size = 3.2, fontface = "bold") +
+            hjust = -0.1, size = 2.5, fontface = "bold") +
   coord_flip() +
   labs(
-    title = "Top 10 des départements réalisant des greffes rénales",
+  
     subtitle = paste("Sur", nrow(greffes_par_dept), "départements |",
                      sum(greffes_par_dept$nb_greffes), "patients greffés"),
     x = "Département",
@@ -766,11 +790,8 @@ ggplot(top10_dept, aes(x = reorder(dept_label, nb_greffes), y = nb_greffes)) +
   ) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.2)))
 
-ggsave("fig_top10_departements_noms.png", width = 12, height = 8, dpi = 300)
+
 ```
-
-
-
 
 ```{r}
 # GRAPHIQUE 2 : Top 15 départements (version plus large)
@@ -778,12 +799,12 @@ ggsave("fig_top10_departements_noms.png", width = 12, height = 8, dpi = 300)
 top15_dept <- head(greffes_par_dept, 15)
 
 ggplot(top15_dept, aes(x = reorder(nom_dept, nb_greffes), y = nb_greffes)) +
-  geom_bar(stat = "identity", fill = "darkgreen", color = "black", alpha = 0.8) +
+  geom_bar(stat = "identity", fill = "steelblue", color = "black", alpha = 0.8) +
   geom_text(aes(label = paste0(nb_greffes, " (", pourcentage, "%)")), 
             hjust = -0.1, size = 3, fontface = "bold") +
   coord_flip() +
   labs(
-    title = "Top 15 des départements réalisant des greffes rénales",
+    
     subtitle = paste(sum(top15_dept$nb_greffes), "greffes |",
                      round(sum(top15_dept$pourcentage), 1), "% du total national"),
     x = "Département",
@@ -807,35 +828,24 @@ gfgvhjb,jbj,
 
 ```{r}
 # GRAPHIQUE 3 : Par région (regroupement)
-
-greffes_par_region <- data_patients %>%
-  filter(!is.na(region)) %>%
-  group_by(region) %>%
-  summarise(
-    nb_greffes = n(),
-    nb_departements = n_distinct(DEP_greffe),
-    nb_etablissements = n_distinct(ETA_NUM_greffe)
-  ) %>%
-  ungroup() %>%
-  arrange(desc(nb_greffes)) %>%
-  mutate(
-    pourcentage = round(nb_greffes / sum(nb_greffes) * 100, 1)
-  )
-
-cat("\n=== GREFFES PAR RÉGION ===\n")
-print(greffes_par_region)
-
 ggplot(greffes_par_region, aes(x = reorder(region, nb_greffes), y = nb_greffes)) +
   geom_bar(stat = "identity", fill = "steelblue", color = "black", alpha = 0.8) +
-  geom_text(aes(label = paste0(nb_greffes, " (", pourcentage, "%)")), 
-            hjust = -0.1, size = 3.5, fontface = "bold") +
+  # Étiquette principale : nb greffes + pourcentage
+  geom_text(
+    aes(label = paste0(nb_greffes, " (", pourcentage, "%)")),
+    hjust = -0.1, size = 2.5, fontface = "bold"
+  ) +
+  # Étiquette secondaire : nb établissements (plus petite, en dessous)
+  geom_text(
+    aes(label = paste0(nb_etablissements, " étab.")),
+    hjust = -0.1, vjust = 2.0, size = 2.0, fontface = "bold"
+  ) +
   coord_flip() +
   labs(
-    title = "Répartition des greffes rénales par région",
-    subtitle = paste(nrow(greffes_par_region), "régions |",
-                     sum(greffes_par_region$nb_greffes), "greffes"),
+   
     x = "Région",
     y = "Nombre de greffes réalisées"
+   
   ) +
   theme_minimal() +
   theme(
@@ -843,11 +853,7 @@ ggplot(greffes_par_region, aes(x = reorder(region, nb_greffes), y = nb_greffes))
     axis.text.y = element_text(size = 10),
     panel.grid.major.y = element_blank()
   ) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
-
-ggsave("fig_greffes_par_region.png", width = 12, height = 8, dpi = 300)
-
-
+  scale_y_continuous(expand = expansion(mult = c(0, 0.20)))
 ```
 
 gchjvhj
@@ -1012,30 +1018,90 @@ ggplot(carte_regions) +
 
 gvvvvnvbnh
 
-
 ```{r}
 ggplot(carte_regions) +
   geom_sf(aes(fill = nb_greffes), color = "white", linewidth = 0.3) +
   geom_sf_text(
     aes(label = nb_greffes),
-    size = 3,
+    size = 2.3,
     fontface = "bold",
-    color = "black"
+    color = "white"
   ) +
-  scale_fill_viridis_c(
-    option = "C",
+  scale_fill_gradient(
+    low  = "#cce5ff",
+    high = "#003d99",
     name = "Nombre de greffes"
   ) +
   labs(
-    title = "Répartition régionale des greffes rénales en France",
+    title   = "Répartition régionale des greffes rénales en France",
     subtitle = "Agrégation par région",
-    caption = "Source : données hospitalières"
+    caption  = "Source : données hospitalières"
   ) +
-  theme_minimal()
-
+  theme_minimal() +
+  theme(
+    plot.title    = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10, color = "grey40"),
+    axis.title    = element_blank(),
+    axis.text     = element_blank(),
+    legend.position = "right"
+  )
 ```
 
+vvvnhhbn
 
+```{r}
+# 1. Supprimer les colonnes issues d'une jointure précédente
+carte_regions <- carte_regions %>% 
+  select(-any_of(c("population", "taux_pour_100k")))
+
+# 2. Redéfinir pop_regions
+pop_regions <- tibble(
+  nom = c("Île-de-France", "Auvergne-Rhône-Alpes", "Nouvelle-Aquitaine",
+          "Occitanie", "Grand Est", "Hauts-de-France",
+          "Provence-Alpes-Côte d'Azur", "Pays de la Loire", "Normandie",
+          "Centre-Val de Loire", "Bretagne", "Bourgogne-Franche-Comté", "Corse"),
+  population = c(12271794L, 8094979L, 6120382L, 6156981L, 5579388L,
+                 6003085L, 5131040L, 3871098L, 3338004L,
+                 2604891L, 3394539L, 2830655L, 344679L)
+)
+
+# 3. Jointure propre
+carte_regions <- carte_regions %>%
+  left_join(pop_regions, by = "nom") %>%
+  mutate(
+    taux_pour_100k = round(as.numeric(nb_greffes) / as.numeric(population) * 100000, 1)
+  )
+
+# 4. Vérification
+glimpse(carte_regions)
+```
+
+```{r}
+ggplot(carte_regions) +
+  geom_sf(aes(fill = taux_pour_100k), color = "white", linewidth = 0.3) +
+  geom_sf_text(
+    aes(label = taux_pour_100k),  # ← manquait
+    size = 2.3,
+    fontface = "bold",
+    color = "white"
+  ) +
+  scale_fill_gradient(
+    low  = "#cce5ff",
+    high = "#003d99",
+    name = "Greffes\npour 100 000 hab."
+  ) +
+  labs(
+    title    = "Taux de greffes rénales par région pour 100 000 habitants",
+    subtitle = "Ramené à la population régionale (INSEE 2023)",
+    caption  = "Source : données hospitalières | Population : INSEE 2023"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title    = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10, color = "grey40"),
+    legend.position = "right"
+  )
+```
 
 ```{r}
 ## Récupération de la liste des diagnostics généraux 
@@ -1043,7 +1109,6 @@ liste_dgn_pal <- unique(data$DGN_PAL)
 print(liste_dgn_pal)
 
 ```
-
 
 Pour une meilleure visualisation :
 
@@ -1067,10 +1132,7 @@ top5 <- obtenir_top_diagnostics(data, n = 7)
 print(top5)
 ```
 
-
-
-Nous avons décidé de créer une fonction qui va nous retourner directement le nom des diagnostics 
-
+Nous avons décidé de créer une fonction qui va nous retourner directement le nom des diagnostics
 
 ```{r}
 obtenir_diagnostics_avec_noms <- function(data, n = 10) {
@@ -1114,7 +1176,6 @@ obtenir_diagnostics_avec_noms <- function(data, n = 10) {
   return(top_diagnostics)
 }
 ```
-
 
 ```{r}
 resultat <- obtenir_diagnostics_avec_noms(data, 10)
@@ -1176,7 +1237,6 @@ Interprétation du test :
 
 Le test de Wilcoxon compare la distribution du nombre de séjours entre les hommes et les femmes. Avec une p value de 0,003061, le test est pas significatif au seuil de 1 %. Cela signifie qu'il existe pune différence de comportement de suivi entre les deux sexes.
 
-
 ## Distribution de l’âge à la greffe par sexe
 
 ```{r}
@@ -1220,7 +1280,6 @@ Interprétation : La p-value est largement inférieure au seuil de 0,05. Cela si
 Bien que la différence soit statistiquement réelle, elle reste de faible ampleur (moins de 2 ans). Cela peut suggérer que les hommes ont tendance à être greffés à un âge légèrement plus avancé que les femmes.
 
 Voyons cela avec le calcul de l'état carré pour la puissance du test :
-
 
 ```{r}
 library(effectsize)
@@ -1527,7 +1586,6 @@ ggplot(top5_dgn_age, aes(x = reorder(DGN_PAL_suivi, effectif), y = effectif, fil
 
 Interprétations : Le code **Z940** est l'étiquette dominante pour toutes les tranches d'âge. Les codes **Z512** et **Z291** complètent régulièrement le podium, montrant une certaine uniformité dans le codage des dossiers, peu importe l'âge.
 
-
 Procédons maintenant à un test de chi-deux.
 
 Réalisation du test du Chi-deux:
@@ -1544,7 +1602,6 @@ print(test_chi2)
 ```
 
 Malgré une homogénéité visuelle nette des diagnostics dominants entre tranches d’âge (Z940 systématiquement majoritaire, suivi de Z512/Z491), le test du χ² conclut à une association statistiquement significative entre l’âge et le diagnostic principal. Cependant, l’avertissement de R indique que l’approximation du χ² est possiblement incorrecte en raison de nombreux effectifs attendus faibles (table très sparse). Dans ce contexte, la significativité est susceptible d’être amplifiée par la grande taille d’échantillon et le grand nombre de modalités diagnostiques. Ainsi, l’effet observé est vraisemblablement faible sur les diagnostics les plus fréquents, et davantage lié à des variations sur des diagnostics rares.
-
 
 ## Diagnostic principal × durée moyenne de séjour
 
@@ -1759,7 +1816,7 @@ eta2_rehosp
 
 ```
 
-# Analyse des comorbilités 
+# Analyse des comorbilités
 
 # Préparation : joindre comorbidités à la durée cumulée
 
@@ -1784,11 +1841,11 @@ duree_comorb <- bilan_par_patient %>%
 ```
 
 # Diabète × durée totale cumulée
+
 ```{r}
 data_diabete <- duree_comorb %>%
   filter(!is.na(diabete_r))
 ```
-
 
 ```{r}
 data_diabete %>%
@@ -1802,7 +1859,8 @@ data_diabete %>%
   )
 ```
 
-# Visualisation 
+# Visualisation
+
 ```{r}
 ggplot(data_diabete, aes(x = diabete_r, y = duree_totale_cumulee, fill = diabete_r)) +
   geom_boxplot(alpha = 0.7, outlier.shape = NA) +
@@ -1816,16 +1874,15 @@ ggplot(data_diabete, aes(x = diabete_r, y = duree_totale_cumulee, fill = diabete
   theme(legend.position = "none")
 ```
 
-# Test 
+# Test
+
 ```{r}
 wilcox.test(duree_totale_cumulee ~ diabete_r, data = data_diabete)
 ```
 
-L’analyse met en évidence une différence significative de la durée totale cumulée de séjour post-greffe entre les patients diabétiques et non diabétiques. Le test non paramétrique de Wilcoxon montre que cette différence est statistiquement significative (p-value < 2.2e−16), indiquant que la distribution des durées de séjour diffère entre les deux groupes.
+L’analyse met en évidence une différence significative de la durée totale cumulée de séjour post-greffe entre les patients diabétiques et non diabétiques. Le test non paramétrique de Wilcoxon montre que cette différence est statistiquement significative (p-value \< 2.2e−16), indiquant que la distribution des durées de séjour diffère entre les deux groupes.
 
 Cette observation suggère que le diabète est associé à un parcours de soins plus intensif après la greffe rénale, possiblement en raison d’un risque accru de complications, d’une surveillance médicale renforcée ou d’une prise en charge plus complexe.
-
-
 
 ## Diabète insulinodépendant × durée totale cumulée
 
@@ -1847,7 +1904,8 @@ stats_diabete_ins <- data_diabete_ins %>%
 stats_diabete_ins
 ```
 
-## Visualisation 
+## Visualisation
+
 ```{r}
 ggplot(data_diabete_ins, aes(x = diabete_insuline_r, y = duree_totale_cumulee, fill = diabete_insuline_r)) +
   geom_boxplot(alpha = 0.7, outlier.shape = NA, color = "black") +
@@ -1861,16 +1919,15 @@ ggplot(data_diabete_ins, aes(x = diabete_insuline_r, y = duree_totale_cumulee, f
   theme_minimal() +
   theme(legend.position = "none")
 ```
-# Test 
+
+# Test
 
 ```{r}
 test_diabete_ins <- wilcox.test(duree_totale_cumulee ~ diabete_insuline_r, data = data_diabete_ins)
 test_diabete_ins
 ```
 
-Les patients présentant un diabète insulinodépendant ont une durée cumulée de séjour significativement différente de celle des patients non insulinodépendants (Wilcoxon, p < 0,05), suggérant une complexité accrue du suivi post-greffe.
-
-
+Les patients présentant un diabète insulinodépendant ont une durée cumulée de séjour significativement différente de celle des patients non insulinodépendants (Wilcoxon, p \< 0,05), suggérant une complexité accrue du suivi post-greffe.
 
 ## AVC et durée totale cumulée
 
@@ -1893,6 +1950,7 @@ stats_AVC
 ```
 
 # Visualisation
+
 ```{r}
 ggplot(data_AVC, aes(x = AVC_r, y = duree_totale_cumulee, fill = AVC_r)) +
   geom_boxplot(alpha = 0.7, outlier.shape = NA, color = "black") +
@@ -1906,13 +1964,15 @@ ggplot(data_AVC, aes(x = AVC_r, y = duree_totale_cumulee, fill = AVC_r)) +
   theme_minimal() +
   theme(legend.position = "none")
 ```
-# Test 
+
+# Test
+
 ```{r}
 test_AVC <- wilcox.test(duree_totale_cumulee ~ AVC_r, data = data_AVC)
 test_AVC
 ```
-Les patients présentant un antécédent d’AVC ont une durée cumulée de séjour significativement différente de celle des autres patients (Wilcoxon, p < 0,05), reflétant un suivi post-greffe potentiellement plus complexe.
 
+Les patients présentant un antécédent d’AVC ont une durée cumulée de séjour significativement différente de celle des autres patients (Wilcoxon, p \< 0,05), reflétant un suivi post-greffe potentiellement plus complexe.
 
 ## Syndrome coronaire × durée totale cumulée
 
@@ -1934,7 +1994,7 @@ stats_coronaire <- data_coronaire %>%
 stats_coronaire
 ```
 
-# Visualisation 
+# Visualisation
 
 ```{r}
 ggplot(data_coronaire, aes(x = syndrome_coronaire_r, y = duree_totale_cumulee, fill = syndrome_coronaire_r)) +
@@ -1951,9 +2011,10 @@ ggplot(data_coronaire, aes(x = syndrome_coronaire_r, y = duree_totale_cumulee, f
 ```
 
 # Test
+
 ```{r}
 test_coronaire <- wilcox.test(duree_totale_cumulee ~ syndrome_coronaire_r, data = data_coronaire)
 test_coronaire
 ```
 
-La présence d’un syndrome coronaire est associée à une différence significative de la durée totale cumulée de séjour post-greffe (Wilcoxon, p < 0,05), indiquant un impact potentiel de cette comorbidité sur le parcours de soins.
+La présence d’un syndrome coronaire est associée à une différence significative de la durée totale cumulée de séjour post-greffe (Wilcoxon, p \< 0,05), indiquant un impact potentiel de cette comorbidité sur le parcours de soins.
