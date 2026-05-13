@@ -826,73 +826,6 @@ ggsave("fig_top15_departements.png", width = 12, height = 10, dpi = 300)
 
 gfgvhjb,jbj,
 
-```{r}
-# GRAPHIQUE 3 : Par région (regroupement)
-ggplot(greffes_par_region, aes(x = reorder(region, nb_greffes), y = nb_greffes)) +
-  geom_bar(stat = "identity", fill = "steelblue", color = "black", alpha = 0.8) +
-  # Étiquette principale : nb greffes + pourcentage
-  geom_text(
-    aes(label = paste0(nb_greffes, " (", pourcentage, "%)")),
-    hjust = -0.1, size = 2.5, fontface = "bold"
-  ) +
-  # Étiquette secondaire : nb établissements (plus petite, en dessous)
-  geom_text(
-    aes(label = paste0(nb_etablissements, " étab.")),
-    hjust = -0.1, vjust = 2.0, size = 2.0, fontface = "bold"
-  ) +
-  coord_flip() +
-  labs(
-   
-    x = "Région",
-    y = "Nombre de greffes réalisées"
-   
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(face = "bold", size = 14),
-    axis.text.y = element_text(size = 10),
-    panel.grid.major.y = element_blank()
-  ) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.20)))
-```
-
-gchjvhj
-
-```{r}
-
-# GRAPHIQUE 4 : Heatmap Région x Département (Top régions)
-# Top 5 régions
-top_regions <- head(greffes_par_region$region, 5)
-
-greffes_region_dept <- data_patients %>%
-  filter(region %in% top_regions, !is.na(nom_dept)) %>%
-  group_by(region, nom_dept) %>%
-  summarise(nb_greffes = n()) %>%
-  ungroup()
-
-ggplot(greffes_region_dept, aes(x = region, y = nom_dept, fill = nb_greffes)) +
-  geom_tile(color = "white", size = 0.5) +
-  geom_text(aes(label = nb_greffes), color = "white", fontface = "bold", size = 3) +
-  scale_fill_gradient(low = "lightgreen", high = "darkgreen", name = "Nb greffes") +
-  labs(
-    title = "Nombre de greffes par département dans les 5 principales régions",
-    x = "Région",
-    y = "Département"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(face = "bold", size = 12),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
-    axis.text.y = element_text(size = 8),
-    panel.grid = element_blank()
-  )
-
-ggsave("fig_heatmap_region_dept.png", width = 12, height = 10, dpi = 300)
-
-
-```
-
-hj,b,b,
 
 ```{r}
 # GRAPHIQUE BONUS : Treemap des départements
@@ -988,6 +921,24 @@ regions_metro <- regions %>%
 
 
 ```
+
+```{r}
+greffes_par_region <- data_patients %>%
+  filter(!is.na(region)) %>%  # Exclure les départements non identifiés
+  group_by(region) %>%
+  summarise(nb_greffes = n()) %>%
+  ungroup() %>%
+  arrange(desc(nb_greffes))
+
+# Afficher le résultat
+cat("\n=== NOMBRE DE GREFFES PAR RÉGION ===\n")
+print(greffes_par_region)
+
+```
+
+
+
+
 
 ```{r}
 carte_regions <- regions_metro %>%

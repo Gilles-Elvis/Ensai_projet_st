@@ -176,8 +176,7 @@ Code pour la création de la base
 
 Problème majeur n°1 : présence de lignes “en-tête” dans les données
 
-Ça veut dire que **l’en-tête a été lu comme une observation**\
-➡️ C’est **très grave analytiquement** (ça fausse :histogrammes, moyennes , comptages, cartes, modèles)
+Ça veut dire que **l’en-tête a été lu comme une observation** C’est **très grave analytiquement** (ça fausse :histogrammes, moyennes , comptages, cartes, modèles)
 
 ```{r}
 # À exécuter une seule fois, tout au début du projet
