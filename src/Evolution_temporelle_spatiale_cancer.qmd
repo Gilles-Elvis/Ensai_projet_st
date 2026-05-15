@@ -1,0 +1,585 @@
+---
+title: "Dynamique des cancers chez les patients greffés"
+subtitle: "Analyse de la prévalence temporelle et régionale"
+author: ""
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Sommaire"
+    number-sections: true
+    code-fold: true
+    code-summary: "Afficher le code"
+    theme: flatly
+editor: visual
+---
+
+# Objectif de l'analyse
+
+Cette analyse a pour objectif d'étudier l'**évolution temporelle de la prévalence des cancers** dans une cohorte de patients greffés, à partir de données de suivi hospitalier.
+
+La **prévalence** est définie ici comme le nombre de patients présentant un diagnostic de cancer actif au cours d'une année donnée (comptage de patients uniques par année).
+
+L'analyse est structurée en quatre parties :
+
+1.  Préparation des données
+2.  Prévalence annuelle globale et visualisation
+3.  Analyse par région et par type de cancer
+4.  Modélisation statistique et cartographie
+
+------------------------------------------------------------------------
+
+# Préparation des données
+
+## Chargement des packages
+
+```{r}
+#| message: false
+#| warning: false
+
+library(dplyr)       # Manipulation de données
+library(lubridate)   # Gestion des dates
+library(ggplot2)     # Visualisations graphiques
+library(stringr)     # Manipulation de chaînes de caractères
+library(stringi)     # Normalisation Unicode (accents, apostrophes)
+library(MASS)        # Modèle binomial négatif (glm.nb)
+library(broom)       # Mise en forme des sorties de modèles
+```
+
+## Importation des données
+
+```{r}
+data_cancer <- readRDS("data.rds")
+```
+
+## Vérification initiale
+
+On vérifie la distribution de la variable `cancer` (0 = absent, 1 = présent) pour s'assurer de la cohérence des données.
+
+```{r}
+table(data_cancer$cancer)
+```
+
+------------------------------------------------------------------------
+
+# Construction de la variable temporelle
+
+La variable `debut_sejour` correspond à la date de début du séjour hospitalier. On en extrait l'**année d'observation**, qui servira d'unité temporelle dans toute l'analyse.
+
+```{r}
+data_cancer <- data_cancer %>%
+  mutate(
+    debut_sejour = as.Date(debut_sejour),
+    annee        = year(debut_sejour)
+  )
+```
+
+On vérifie la distribution des observations par année pour s'assurer de la couverture temporelle.
+
+```{r}
+table(data_cancer$annee)
+```
+
+------------------------------------------------------------------------
+
+# Prévalence annuelle globale
+
+## Calcul
+
+La prévalence annuelle est calculée comme le **nombre de patients uniques** (`n_distinct(study_id)`) présentant un cancer chaque année. L'utilisation de `n_distinct` évite de comptabiliser plusieurs fois un même patient hospitalisé plusieurs fois dans l'année.
+
+```{r}
+prevalence_par_annee <- data_cancer %>%
+  filter(cancer == 1) %>%
+  group_by(annee) %>%
+  summarise(
+    prevalence = n_distinct(study_id),
+    .groups    = "drop"
+  )
+
+print(prevalence_par_annee)
+```
+
+## Visualisation
+
+Ce graphique permet d'observer la **tendance générale** de la prévalence des cancers au cours du temps.
+
+```{r}
+ggplot(prevalence_par_annee, aes(x = annee, y = prevalence)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  labs(
+    title = "Évolution temporelle de la prévalence des cancers",
+    x     = "Année",
+    y     = "Nombre de patients avec cancer"
+  ) +
+  theme_classic()
+```
+
+------------------------------------------------------------------------
+
+# Analyse par région
+
+## Calcul de la prévalence régionale
+
+On calcule la prévalence annuelle par région en excluant les observations dont la région est manquante.
+
+```{r}
+prevalence_region <- data_cancer %>%
+  filter(cancer == 1) %>%
+  filter(!is.na(region)) %>%
+  group_by(region, annee) %>%
+  summarise(
+    prevalence = n_distinct(study_id),
+    .groups    = "drop"
+  )
+```
+
+## Visualisation par région
+
+Chaque panneau représente une région. L'axe des ordonnées est libre (`scales = "free_y"`) pour tenir compte des différences d'effectifs entre régions.
+
+```{r}
+ggplot(prevalence_region, aes(x = annee, y = prevalence)) +
+  geom_line(color = "steelblue", linewidth = 0.9) +
+  geom_point(color = "steelblue", size = 1.8) +
+  facet_wrap(~ region, scales = "free_y", ncol = 4) +
+  labs(
+    title = "Évolution de la prévalence des cancers par région",
+    x     = "Année",
+    y     = "Nombre de patients"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.text       = element_text(face = "bold", size = 7),
+    strip.background = element_blank(),
+    plot.title       = element_text(face = "bold", size = 14, hjust = 0.5),
+    axis.title       = element_text(size = 12),
+    panel.border     = element_blank()
+  )
+```
+
+------------------------------------------------------------------------
+
+# Analyse par type de cancer
+
+## Identification des types de cancer
+
+Le type de cancer est extrait du **code CIM-10** de diagnostic principal (`DGN_PAL_suivi`). On conserve les 3 premiers caractères, qui correspondent à la catégorie diagnostique (ex. : C50 = cancer du sein, C44 = cancer de la peau).
+
+```{r}
+data_cancer <- data_cancer %>%
+  mutate(
+    type_cancer = ifelse(
+      cancer == 1,
+      substr(DGN_PAL_suivi, 1, 3),
+      NA
+    )
+  )
+```
+
+## Fréquence des types de cancer
+
+```{r}
+freq_cancer <- data_cancer %>%
+  filter(cancer == 1) %>%
+  count(type_cancer, sort = TRUE)
+
+print(freq_cancer)
+```
+
+## Top 10 des cancers les plus fréquents
+
+### Graphique avec codes CIM-10
+
+```{r}
+top10 <- freq_cancer %>%
+  slice_max(n, n = 10)
+
+ggplot(top10, aes(x = reorder(type_cancer, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Types de cancers les plus fréquents",
+    x     = "Type de cancer (code CIM-10)",
+    y     = "Nombre de patients"
+  ) +
+  theme_classic(base_size = 14)
+```
+
+### Graphique avec libellés lisibles
+
+On associe à chaque code CIM-10 un libellé en français pour faciliter la lecture.
+
+```{r}
+labels_cancer <- c(
+  "C44" = "Cancer de la peau",
+  "C64" = "Cancer du rein",
+  "C34" = "Cancer du poumon",
+  "C83" = "Lymphome non hodgkinien",
+  "C67" = "Cancer de la vessie",
+  "C78" = "Métastases pulmonaires",
+  "C46" = "Sarcome de Kaposi",
+  "C61" = "Cancer de la prostate",
+  "C50" = "Cancer du sein",
+  "C18" = "Cancer du côlon"
+)
+
+top10$type_cancer_label <- labels_cancer[top10$type_cancer]
+
+ggplot(top10, aes(x = reorder(type_cancer_label, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Types de cancers les plus fréquents",
+    x     = "Type de cancer",
+    y     = "Nombre de patients"
+  ) +
+  theme_classic()
+```
+
+La distribution des types de cancers montre des différences de fréquence entre les différentes localisations tumorales. Le cancer de la peau (**C44**) est le plus fréquent et se distingue nettement des autres. Les cancers du rein (**C64**) et du poumon (**C34**) sont également représentés, suivis des lymphomes non hodgkiniens (**C83**), des cancers de la vessie (**C67**), des métastases pulmonaires (**C78**), du sarcome de Kaposi (**C46**), et des cancers de la prostate (**C61**), du sein (**C50**) et du côlon (**C18**).
+
+## Dynamique temporelle des 5 principaux cancers
+
+On sélectionne les 5 types de cancer les plus fréquents, puis on calcule leur prévalence annuelle.
+
+```{r}
+top5 <- freq_cancer %>%
+  slice_max(n, n = 5) %>%
+  pull(type_cancer)
+
+prevalence_top5 <- data_cancer %>%
+  filter(type_cancer %in% top5) %>%
+  group_by(type_cancer, annee) %>%
+  summarise(
+    prevalence = n_distinct(study_id),
+    .groups    = "drop"
+  )
+```
+
+```{r}
+ggplot(prevalence_top5, aes(x = annee, y = prevalence, color = type_cancer)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  labs(
+    title  = "Évolution des principaux types de cancers",
+    x      = "Année",
+    y      = "Nombre de patients",
+    color  = "Type de cancer"
+  ) +
+  theme_classic()
+```
+
+Le cancer de la peau (**C44**) présente les effectifs les plus élevés sur l'ensemble de la période, avec une augmentation jusqu'en 2021 suivie d'une diminution. Les cancers du rein (**C64**) et du poumon (**C34**) montrent des variations plus modérées. Les cancers de la vessie (**C67**) et les lymphomes (**C83**) présentent des effectifs plus faibles avec des variations moins marquées.
+
+## Prévalence par région, année et type de cancer
+
+```{r}
+prevalence_region_type <- data_cancer %>%
+  filter(type_cancer %in% top5) %>%
+  filter(!is.na(region)) %>%
+  group_by(region, annee, type_cancer) %>%
+  summarise(
+    prevalence = n_distinct(study_id),
+    .groups    = "drop"
+  )
+```
+
+```{r}
+ggplot(prevalence_region_type,
+       aes(x = annee, y = prevalence, color = type_cancer)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ region, scales = "free_y", ncol = 3) +
+  labs(
+    title = "Évolution des principaux types de cancers par région",
+    x     = "Année",
+    y     = "Nombre de patients",
+    color = "Type de cancer"
+  ) +
+  scale_color_manual(
+    values = c(
+      "C44" = "#1b9e77",
+      "C64" = "#d95f02",
+      "C34" = "#7570b3",
+      "C67" = "#e7298a",
+      "C83" = "#66a61e"
+    ),
+    labels = c(
+      "C44" = "Cancer de la peau",
+      "C64" = "Cancer du rein",
+      "C34" = "Cancer du poumon",
+      "C67" = "Cancer de la vessie",
+      "C83" = "Lymphome non hodgkinien"
+    )
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    strip.text       = element_text(size = 10, face = "bold"),
+    legend.position  = "bottom",
+    legend.title     = element_text(size = 11),
+    legend.text      = element_text(size = 10),
+    legend.key.size  = unit(0.6, "cm"),
+    legend.box       = "horizontal"
+  ) +
+  guides(color = guide_legend(nrow = 2))
+```
+
+Le cancer de la peau (**C44**) présente les effectifs les plus élevés dans l'ensemble des régions. Certaines régions, comme l'Île-de-France et la Nouvelle-Aquitaine, présentent des effectifs globalement plus élevés que les autres.
+
+## Région avec le plus de cas par type de cancer
+
+```{r}
+resume_region <- prevalence_region_type %>%
+  group_by(region, type_cancer) %>%
+  summarise(
+    total   = sum(prevalence),
+    .groups = "drop"
+  ) %>%
+  arrange(type_cancer, desc(total))
+
+resume_region
+```
+
+------------------------------------------------------------------------
+
+# Modélisation statistique
+
+## Modèle de Poisson : tendance temporelle globale
+
+On teste si la prévalence globale augmente ou diminue significativement au cours du temps.
+
+```{r}
+modele_poisson <- glm(
+  prevalence ~ annee,
+  family = poisson(link = "log"),
+  data   = prevalence_par_annee
+)
+
+summary(modele_poisson)
+```
+
+### Vérification de la surdispersion
+
+Le ratio de dispersion (déviance / degrés de liberté résiduels) doit être proche de 1 pour valider les hypothèses du modèle de Poisson. Une valeur nettement supérieure à 1 indique une **surdispersion**, qui invalide ce modèle.
+
+```{r}
+dispersion <- deviance(modele_poisson) / df.residual(modele_poisson)
+cat("Ratio de dispersion :", round(dispersion, 2), "\n")
+```
+
+### Analyse graphique des résidus
+
+```{r}
+data_residus <- data.frame(
+  fitted  = fitted(modele_poisson),
+  residus = residuals(modele_poisson, type = "pearson")
+)
+
+ggplot(data_residus, aes(x = fitted, y = residus)) +
+  geom_point(color = "steelblue", alpha = 0.6) +
+  geom_hline(yintercept = 0, color = "red", linewidth = 1) +
+  labs(
+    title = "Analyse des résidus du modèle de Poisson",
+    x     = "Valeurs ajustées",
+    y     = "Résidus de Pearson"
+  ) +
+  theme_classic(base_size = 14)
+```
+
+**Interprétation :** Le coefficient associé à l'année est positif (B = 0,029 ; p = 0,070), indiquant une tendance à l'augmentation d'environ **3 % par an** (exp(B) ≈ 1,03). Cette tendance n'est toutefois pas statistiquement significative au seuil de 5 % (p = 0,070).
+
+## Modèle de Poisson : effet de la région
+
+On identifie d'abord la région avec le plus grand nombre de cas, qui servira de référence.
+
+```{r}
+# Région avec le plus de cas cumulés → utilisée comme référence
+ref_region <- prevalence_region %>%
+  group_by(region) %>%
+  summarise(total = sum(prevalence), .groups = "drop") %>%
+  slice_max(total, n = 1) %>%
+  pull(region)
+
+cat("Région de référence :", ref_region, "\n")
+```
+
+```{r}
+# Définition de la région de référence
+prevalence_region$region <- factor(prevalence_region$region)
+prevalence_region$region <- relevel(prevalence_region$region, ref = "Île-de-France")
+```
+
+```{r}
+modele_region <- glm(
+  prevalence ~ annee + region,
+  family = poisson(link = "log"),
+  data   = prevalence_region
+)
+
+summary(modele_region)
+```
+
+```{r}
+anova(modele_region, test = "Chisq")
+```
+
+**Interprétation :**
+
+- **Effet du temps :** après ajustement sur la région, l'année n'est pas associée significativement à la prévalence (Estimate = 0,013 ; p = 0,444).
+- **Effet de la région :** la prévalence varie significativement selon les régions. L'Île-de-France présente une prévalence environ **72 % plus élevée** que la région de référence (exp(0,540) ≈ 1,72 ; p < 0,001). Plusieurs régions (Bourgogne-Franche-Comté, Bretagne, Centre-Val de Loire, Grand Est, Hauts-de-France, Normandie, Pays de la Loire, PACA) présentent une prévalence significativement plus faible. La Nouvelle-Aquitaine et l'Occitanie ne sont pas significativement différentes.
+
+## Modèle binomial négatif : correction de la surdispersion
+
+En présence de surdispersion, le modèle de Poisson n'est pas adapté. On lui substitue un **modèle binomial négatif**, qui introduit un paramètre de dispersion supplémentaire.
+
+```{r}
+# Mise en forme des variables pour le modèle
+prevalence_region <- prevalence_region %>%
+  mutate(
+    region = factor(region),
+    annee  = factor(annee)
+  )
+
+# Île-de-France comme région de référence
+prevalence_region$region <- relevel(prevalence_region$region, ref = "Île-de-France")
+```
+
+```{r}
+modele_nb <- glm.nb(
+  prevalence ~ annee + region,
+  data = prevalence_region
+)
+
+summary(modele_nb)
+```
+
+### Tableau des coefficients
+
+```{r}
+table_nb <- tidy(modele_nb) %>%
+  mutate(
+    estimate  = round(estimate, 3),
+    std.error = round(std.error, 3),
+    statistic = round(statistic, 3),
+    p.value   = ifelse(p.value < 0.001, "<0.001", round(p.value, 3))
+  )
+
+table_nb
+```
+
+### Statistiques globales du modèle
+
+```{r}
+stats_modele_nb <- data.frame(
+  Statistique = c("AIC", "Theta (dispersion)", "Log-vraisemblance"),
+  Valeur      = c(
+    round(AIC(modele_nb), 2),
+    round(modele_nb$theta, 3),
+    round(as.numeric(logLik(modele_nb)), 2)
+  )
+)
+
+stats_modele_nb
+```
+
+### Test global du modèle (ANOVA)
+
+```{r}
+anova(modele_nb, test = "Chisq")
+```
+
+### Comparaison au modèle nul
+
+```{r}
+modele_nb_null <- glm.nb(
+  prevalence ~ 1,
+  data = prevalence_region
+)
+
+anova(modele_nb_null, modele_nb, test = "Chisq")
+```
+
+### Ratios d'incidence (Incidence Rate Ratios)
+
+Les exponentielle des coefficients s'interprètent comme des **rapports de taux** par rapport à la région de référence.
+
+```{r}
+irr <- exp(coef(modele_nb))
+round(irr, 3)
+```
+
+------------------------------------------------------------------------
+
+# Cartographie régionale
+
+## Préparation des données cartographiques
+
+On compare la distribution régionale des cancers entre la **première et la dernière année** disponibles.
+
+```{r}
+#| message: false
+#| warning: false
+
+library(giscoR)
+library(sf)
+```
+
+```{r}
+# Récupération des contours des régions françaises (NUTS2)
+regions_fr <- gisco_get_nuts(
+  country    = "FR",
+  nuts_level = 2,
+  resolution = "20"
+)
+
+# Exclusion des régions ultramarines
+regions_fr_metropole <- regions_fr %>%
+  filter(!NUTS_NAME %in% c("Guadeloupe", "Martinique", "Guyane", "La Réunion", "Mayotte"))
+```
+
+## Normalisation des noms de régions
+
+Une fonction de nettoyage harmonise les noms de régions entre la base de données et le fond de carte (suppression des accents, mise en minuscules, gestion des apostrophes typographiques).
+
+```{r}
+clean_region <- function(x) {
+  x %>%
+    str_trim() %>%
+    str_replace_all("'", "'") %>%
+    stringi::stri_trans_general("Latin-ASCII") %>%
+    str_to_lower()
+}
+```
+
+## Jointure avec les données de prévalence
+
+```{r}
+annees_carte <- c(min(prevalence_region$annee), max(prevalence_region$annee))
+
+carte_data <- prevalence_region %>%
+  filter(annee %in% annees_carte) %>%
+  mutate(region_key = clean_region(region))
+
+regions_fr_metropole <- regions_fr_metropole %>%
+  mutate(region_key = clean_region(NUTS_NAME))
+
+carte_fr <- regions_fr_metropole %>%
+  left_join(carte_data, by = "region_key")
+```
+
+## Carte : distribution régionale des cancers
+
+```{r}
+ggplot(carte_fr) +
+  geom_sf(aes(fill = prevalence), color = "white", linewidth = 0.2) +
+  facet_wrap(~ annee) +
+  scale_fill_viridis_c(name = "Nombre de cas", na.value = "grey90") +
+  labs(
+    title    = "Distribution régionale des cancers",
+    subtitle = "Comparaison entre la première et la dernière année disponible"
+  ) +
+  theme_void()
+```
