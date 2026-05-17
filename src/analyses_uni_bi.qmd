@@ -207,10 +207,39 @@ ggsave(
 
 ```{r}
 # Tableau de distribution par sexe
+# Tableau de distribution par sexe
+sexe_summary <- data_patients %>%
+  group_by(Sexe) %>%
+  summarise(
+    effectif = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    pourcentage = round(effectif / sum(effectif) * 100, 1)
+  )
+
+print(sexe_summary)
+
+ggplot(sexe_summary, aes(x = Sexe, y = effectif, fill = Sexe)) +
+  geom_col(alpha = 0.8, color = "black") +
+  geom_text(
+    aes(label = paste0(effectif, " (", pourcentage, "%)")),
+    vjust = -0.3,
+    size = 4
+  ) +
+
+  #coord_cartesian(ylim = c(0, 4000)) +   # 
+  labs(
+    title = "Répartition des patients greffés par sexe",
+    subtitle = paste("n =", nrow(data_patients), "patients"),
+    x = "Sexe",
+    y = "Nombre de patients"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
 
 ```
-
-commentaires.....
 
 ## Analyse des séjour post-greffe
 
@@ -260,66 +289,55 @@ cat("\nRésumé du nombre de séjours par patient :\n")
 print(summary(bilan_par_patient$nb_sejours))
 ```
 
-Dans les préliminaires , nous avons constater que les patients peuvent avoir plusieurs séjours , nous avons décidé de vérifier le nombre exacte de séjour par patients
+Procédons maintenant à des visualisations pour mieux appréhender l'information :
 
-D'abord nous regardons la durée de séjour par ligne dans la base de données avant de faire le regroupement par patient
-
-```{r}
-data$duree_sejour <- as.numeric(data$fin_sejour - data$debut_sejour)
-data$duree_sejour[data$duree_sejour == 0] <- 1
-```
-
-Remarquons que lorsque la durée du séjour fait 0, nous l'initialisons à 1 afin d'avoir une bonne représentativité vu l'opération mathématique qui est réalisée.
-
-Nous groupons maintenant par patient:
+Distrubution du nombre de séjours par patient
 
 ```{r}
-sejours_par_patient <- data %>%
-  group_by(study_id) %>%
-  summarise(nb_sejours = n()) %>%
-  ungroup()
-
-cat("\nNombre de séjours par patient :\n")
-print(summary(sejours_par_patient$nb_sejours))
+ggplot(bilan_par_patient, aes(x = nb_sejours)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "black") +
+  coord_cartesian(xlim = c(0, 50)) +
+  labs(
+    title = "Distribution du nombre de séjours par patient",
+    x = "Nombre de séjours",
+    y = "Nombre de patients"
+  ) +
+  theme_classic()
+ggsave("nb_sejours.png", width = 10, height = 6, dpi = 300)
 ```
 
-Hétérogénéité majeure : De 1 à 3 101 séjours !
-
-25% avec peu de suivi (1-2 séjours)
-
-50% avec suivi standard (2-7 séjours)
-
-25% avec suivi intensif (\>7 séjours)
-
-La médiane (4) est plus représentative que la moyenne (7.95)
-
-### Graphiquement
+Distribution de la durée totale cumulée de séjour par patient
 
 ```{r}
-p1 <- dist_sejours <- table(table(data$study_id))
-
-barplot(
-  dist_sejours,
-  xlab = "Durée totale de séjours par patient",
-  ylab = "Nombre de patients",
-  main = "Distribution  de séjours par patient",
-  col = "steelblue"
-)
-
-
-p1
-
-ggsave(
-  "figures/delai_sejours_suivi_anexe.png",
- 
-)
+ggplot(bilan_par_patient, aes(x = duree_totale_cumulee)) +
+  geom_histogram(binwidth = 10, fill = "steelblue", color = "black") +
+  coord_cartesian(xlim = c(0, 500)) +
+  labs(
+    title = "Distribution de la durée totale cumulée de séjour par patient",
+    x = "Durée totale cumulée (jours)",
+    y = "Nombre de patients"
+  ) +
+  theme_classic()
+ggsave("som_sejours.png", width = 10, height = 6, dpi = 300)
 ```
 
-401 patients ont 1 seul séjour (probablement juste la greffe, sans réhospitalisation) ligne de code 102
+Quelques statistiques sur la durée cumulée et le nombre de séjour
 
-436 patients ont 2 séjours \# La majorité des patients ont entre 1 et 10 séjours
+```{r}
+summary(bilan_par_patient$nb_sejours)
+```
 
-Quelques patients ont un suivi très intensif : jusqu'à 3101 séjours pour un patient !
+```{r}
+summary(bilan_par_patient$duree_totale_cumulee)
+```
+
+```{r}
+round(sd(bilan_par_patient$nb_sejours, na.rm = TRUE), 2)
+```
+
+```{r}
+round(sd(bilan_par_patient$duree_totale_cumulee, na.rm = TRUE), 2)
+```
 
 ### Densité des séjours
 
@@ -486,8 +504,6 @@ ggplot(df_dgn, aes(x = reorder(diagnostic, nombre), y = nombre)) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
 ```
 
-On a besoin de connaitre la signification des codes pour savoir quelle interprétation donnée
-
 ## Top 10 des dignostics relié à la greffe
 
 ```{r}
@@ -516,8 +532,6 @@ ggplot(df_dgn_rel, aes(x = reorder(diagnostic, nombre), y = nombre)) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
 ```
 
-Idem , on ne peut pas dire grand chose( code vide==XXXX ? )
-
 ## Top 10 des établissement qui font plus de greffe
 
 Compter le nombre de greffes par établissement
@@ -535,8 +549,6 @@ greffes_par_etab <- data %>%
 greffes_par_etab
 
 ```
-
-ghghv
 
 ```{r}
 # Top 10 des établissements
@@ -567,8 +579,6 @@ ggplot(top10_etab, aes(x = reorder(etab_greffe, nb_greffes), y = nb_greffes)) +
   ) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
 ```
-
-hgvc
 
 ```{r}
 
@@ -622,8 +632,6 @@ ggsave("fig_top10_departements.png", width = 12, height = 8, dpi = 300)
 
 
 ```
-
-ygzehbchjbsdj
 
 ```{r}
 
@@ -702,8 +710,6 @@ print(head(ref_departements, 10))
 
 ```
 
-gcghvjhbvj,h
-
 ```{r}
 #  joindre les noms
 
@@ -711,8 +717,6 @@ data_patients <- data_patients %>%
   # Jointure avec le référentiel
   left_join(ref_departements, by = "DEP_greffe")
 ```
-
-gvjhbkj
 
 ```{r}
 # Vérifier la jointure
@@ -759,8 +763,6 @@ cat("\n=== TOP 15 DÉPARTEMENTS ===\n")
 print(head(greffes_par_dept, 15))
 
 ```
-
-vgh,h
 
 ```{r}
 # GRAPHIQUE 1 : Top 10 départements avec NOMS
@@ -824,9 +826,6 @@ ggsave("fig_top15_departements.png", width = 12, height = 10, dpi = 300)
 
 ```
 
-gfgvhjb,jbj,
-
-
 ```{r}
 # GRAPHIQUE BONUS : Treemap des départements
 
@@ -853,8 +852,6 @@ treemap(data_treemap,
         border.col = "white",
         border.lwds = c(3, 1))
 ```
-
-v b bn bn
 
 ```{r}
 library(sf)
@@ -936,10 +933,6 @@ print(greffes_par_region)
 
 ```
 
-
-
-
-
 ```{r}
 carte_regions <- regions_metro %>%
   left_join(
@@ -966,8 +959,6 @@ ggplot(carte_regions) +
 
 
 ```
-
-gvvvvnvbnh
 
 ```{r}
 ggplot(carte_regions) +
@@ -997,8 +988,6 @@ ggplot(carte_regions) +
     legend.position = "right"
   )
 ```
-
-vvvnhhbn
 
 ```{r}
 # 1. Supprimer les colonnes issues d'une jointure précédente
